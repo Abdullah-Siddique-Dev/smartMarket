@@ -30,6 +30,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
   shops,
   bookers,
   onRefresh,
+  onNavigateToBilling,
 }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
@@ -79,6 +80,17 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
   const handleOpenDetail = async (orderId: number) => {
     const full = await getOrderById(orderId);
     if (full) setViewOrder(full);
+  };
+
+  const handleConvertToBill = async (ord: Order) => {
+    let orderToConvert = ord;
+    if (!ord.items || ord.items.length === 0) {
+      const full = await getOrderById(ord.id);
+      if (full) orderToConvert = full;
+    }
+    if (onNavigateToBilling) {
+      onNavigateToBilling(orderToConvert);
+    }
   };
 
   const handleAddOrderItem = () => {
@@ -290,11 +302,21 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                       Rs. {ord.totalAmount.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-center">{getStatusBadge(ord.status)}</td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      {ord.status !== "BILLED" && ord.status !== "CANCELLED" && (
+                        <button
+                          type="button"
+                          onClick={() => handleConvertToBill(ord)}
+                          className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors mr-1.5 cursor-pointer shadow-xs"
+                          title="Generate POS bill from this order immediately"
+                        >
+                          Convert to Bill
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleOpenDetail(ord.id)}
-                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors cursor-pointer"
                       >
                         Details
                       </button>
@@ -556,6 +578,20 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Convert to Bill Action in Modal */}
+            {viewOrder.status !== "BILLED" && viewOrder.status !== "CANCELLED" && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleConvertToBill(viewOrder);
+                  setViewOrder(null);
+                }}
+                className="w-full py-2.5 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-theme-xs cursor-pointer flex items-center justify-center gap-2"
+              >
+                Convert Order Directly to POS Bill
+              </button>
+            )}
 
             {/* Status Change Controls */}
             <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">

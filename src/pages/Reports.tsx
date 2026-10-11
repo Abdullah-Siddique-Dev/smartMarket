@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   TrendingUp,
   DollarSign,
@@ -7,28 +7,45 @@ import {
   ArrowDownRight,
   Store,
   Building2,
+  Calculator,
+  Sparkles,
 } from "lucide-react";
 import { getProfitKPIs, getTopProducts, getBookerLeaderboard, ProfitKPIs } from "../db/reportService";
+import { getExpenseSummary } from "../db/expenseService";
+import { Product } from "../db/schema";
 import { PageHeader } from "../components/ui/PageHeader";
 
-export const ReportsPage: React.FC = () => {
+interface ReportsPageProps {
+  products?: Product[];
+}
+
+export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
   const [kpis, setKpis] = useState<ProfitKPIs | null>(null);
   const [topProducts, setTopProducts] = useState<any[]>([]);
   const [bookersLeaderboard, setBookersLeaderboard] = useState<any[]>([]);
+  const [monthlyExpenses, setMonthlyExpenses] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Profit Simulator State
+  const [selectedSimProduct, setSelectedSimProduct] = useState<string>("ALL");
+  const [simQty, setSimQty] = useState<number>(0);
+  const [simCostPrice, setSimCostPrice] = useState<number>(0);
+  const [simSellingPrice, setSimSellingPrice] = useState<number>(0);
 
   useEffect(() => {
     async function loadReports() {
       setIsLoading(true);
       try {
-        const [k, p, b] = await Promise.all([
+        const [k, p, b, exp] = await Promise.all([
           getProfitKPIs(),
           getTopProducts(6),
           getBookerLeaderboard(),
+          getExpenseSummary(),
         ]);
         setKpis(k);
         setTopProducts(p);
         setBookersLeaderboard(b);
+        setMonthlyExpenses(exp.totalThisMonth);
       } catch (err) {
         console.error("Failed to load reports:", err);
       } finally {
@@ -37,6 +54,45 @@ export const ReportsPage: React.FC = () => {
     }
     loadReports();
   }, []);
+
+  // Auto-fetch actual inventory stock for Profit Simulator
+  useEffect(() => {
+    if (selectedSimProduct === "ALL") {
+      const totalUnits = products.reduce((acc, p) => acc + p.currentStock, 0);
+      const totalCost = products.reduce((acc, p) => acc + (p.currentStock * p.purchasePrice), 0);
+      const totalRev = products.reduce((acc, p) => acc + (p.currentStock * p.sellingPrice), 0);
+      setSimQty(totalUnits);
+      setSimCostPrice(totalUnits > 0 ? Math.round(totalCost / totalUnits) : 0);
+      setSimSellingPrice(totalUnits > 0 ? Math.round(totalRev / totalUnits) : 0);
+    } else {
+      const prod = products.find((p) => p.id === Number(selectedSimProduct));
+      if (prod) {
+        // Auto-fetch actual current quantity from warehouse inventory (no hardcoded 100)
+        setSimQty(prod.currentStock);
+        setSimCostPrice(prod.purchasePrice);
+        setSimSellingPrice(prod.sellingPrice);
+      }
+    }
+  }, [selectedSimProduct, products]);
+
+  // Simulator Calculations
+  const simRevenue = useMemo(() => {
+    if (selectedSimProduct === "ALL") {
+      return products.reduce((acc, p) => acc + (p.currentStock * p.sellingPrice), 0);
+    }
+    return simQty * simSellingPrice;
+  }, [selectedSimProduct, products, simQty, simSellingPrice]);
+
+  const simCost = useMemo(() => {
+    if (selectedSimProduct === "ALL") {
+      return products.reduce((acc, p) => acc + (p.currentStock * p.purchasePrice), 0);
+    }
+    return simQty * simCostPrice;
+  }, [selectedSimProduct, products, simQty, simCostPrice]);
+
+  const simGrossProfit = simRevenue - simCost;
+  const simNetProfit = simGrossProfit - monthlyExpenses;
+  const simMarginPct = simRevenue > 0 ? Math.round((simGrossProfit / simRevenue) * 100) : 0;
 
   return (
     <div className="space-y-6">
@@ -113,6 +169,144 @@ export const ReportsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Interactive Profit & Margin Simulator */}
+      <div className="bg-white dark:bg-gray-900 border border-brand-200 dark:border-brand-900/60 rounded-3xl p-5 shadow-theme-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-2.5">
+            <div className="size-9 rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400 flex items-center justify-center">
+              <Calculator className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <span>Wholesale Profit & Margin Simulator</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 flex items-center gap-1">
+                  <Sparkles className="size-3" /> Auto-Synced Inventory Stock
+                </span>
+              </h3>
+              <p className="text-[11px] text-gray-400">
+                Simulate potential earnings on available warehouse stock minus operational expenses
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Simulator Form Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-gray-50/70 dark:bg-gray-800/40 p-3.5 rounded-2xl">
+          {/* Product Select */}
+          <div className="lg:col-span-1">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+              Select Product *
+            </label>
+            <select
+              value={selectedSimProduct}
+              onChange={(e) => setSelectedSimProduct(e.target.value)}
+              className="w-full text-xs font-semibold bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            >
+              <option value="ALL">📦 All Products (Total Available Stock)</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.unit}) - Stock: {p.currentStock}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quantity Input */}
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+              Stock Quantity {selectedSimProduct !== "ALL" && "(Auto-Fetched)"}
+            </label>
+            <input
+              type="number"
+              min="0"
+              disabled={selectedSimProduct === "ALL"}
+              value={simQty}
+              onChange={(e) => setSimQty(Math.max(0, Number(e.target.value) || 0))}
+              className={`w-full text-xs font-mono font-bold border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-2 text-center ${
+                selectedSimProduct === "ALL"
+                  ? "bg-gray-100 dark:bg-gray-800 text-gray-500 cursor-not-allowed"
+                  : "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+              }`}
+            />
+          </div>
+
+          {/* Purchase Cost */}
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+              Cost Price (Rs.) {selectedSimProduct === "ALL" && "(Avg)"}
+            </label>
+            <input
+              type="number"
+              min="0"
+              disabled={selectedSimProduct === "ALL"}
+              value={simCostPrice}
+              onChange={(e) => setSimCostPrice(Math.max(0, Number(e.target.value) || 0))}
+              className={`w-full text-xs font-mono font-bold border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-2 text-right ${
+                selectedSimProduct === "ALL"
+                  ? "bg-gray-100 dark:bg-gray-800 text-gray-500 cursor-not-allowed"
+                  : "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+              }`}
+            />
+          </div>
+
+          {/* Selling Price */}
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+              Selling Rate (Rs.) {selectedSimProduct === "ALL" && "(Avg)"}
+            </label>
+            <input
+              type="number"
+              min="0"
+              disabled={selectedSimProduct === "ALL"}
+              value={simSellingPrice}
+              onChange={(e) => setSimSellingPrice(Math.max(0, Number(e.target.value) || 0))}
+              className={`w-full text-xs font-mono font-bold border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-2 text-right ${
+                selectedSimProduct === "ALL"
+                  ? "bg-gray-100 dark:bg-gray-800 text-gray-500 cursor-not-allowed"
+                  : "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+              }`}
+            />
+          </div>
+        </div>
+
+        {/* Simulator Outputs */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+          <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800">
+            <span className="text-[10px] font-bold text-gray-400 uppercase block">Projected Revenue</span>
+            <span className="text-base font-black font-mono text-gray-900 dark:text-gray-100">
+              Rs. {simRevenue.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40">
+            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase block">
+              Projected Gross Profit ({simMarginPct}%)
+            </span>
+            <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">
+              +Rs. {simGrossProfit.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40">
+            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase block">
+              Monthly Overhead Expenses
+            </span>
+            <span className="text-base font-black font-mono text-rose-600 dark:text-rose-400">
+              -Rs. {monthlyExpenses.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-brand-50/80 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800">
+            <span className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase block">
+              Net Projected Clean Profit
+            </span>
+            <span className={`text-base font-black font-mono ${simNetProfit >= 0 ? "text-brand-600 dark:text-brand-400" : "text-rose-600 dark:text-rose-400"}`}>
+              Rs. {simNetProfit.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Receivables vs Payables */}
       {kpis && (

@@ -14,9 +14,10 @@ import {
   AlertCircle,
   TrendingUp,
 } from "lucide-react";
-import { Product, RetailShop, OrderBooker, Bill, PaymentStatus } from "../db/schema";
+import { Product, RetailShop, OrderBooker, Bill, PaymentStatus, Order } from "../db/schema";
 import { createBill, getBillById } from "../db/posService";
 import { getStoreSettings, StoreSettings } from "../db/settingsService";
+import { updateOrderStatus } from "../db/orderService";
 
 interface CartLine {
   product: Product;
@@ -28,6 +29,8 @@ interface BillingPageProps {
   products: Product[];
   shops: RetailShop[];
   bookers: OrderBooker[];
+  convertedOrder?: Order | null;
+  onClearConvertedOrder?: () => void;
   onBillingComplete?: () => Promise<void>;
 }
 
@@ -35,6 +38,8 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   products,
   shops,
   bookers,
+  convertedOrder,
+  onClearConvertedOrder,
   onBillingComplete,
 }) => {
   const [selectedShopId, setSelectedShopId] = useState<number>(shops[0]?.id || 1);
@@ -66,6 +71,33 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       setSelectedShopId(shops[0].id);
     }
   }, [shops, selectedShopId]);
+
+  useEffect(() => {
+    if (convertedOrder) {
+      if (convertedOrder.shopId) {
+        setSelectedShopId(convertedOrder.shopId);
+      }
+      if (convertedOrder.orderBookerId) {
+        setSelectedBookerId(convertedOrder.orderBookerId);
+      }
+      if (convertedOrder.items && convertedOrder.items.length > 0) {
+        const orderLines: CartLine[] = [];
+        for (const item of convertedOrder.items) {
+          const prod = products.find((p) => p.id === item.productId);
+          if (prod) {
+            orderLines.push({
+              product: prod,
+              quantity: item.quantity,
+              unitSellingPrice: item.unitPrice || prod.sellingPrice,
+            });
+          }
+        }
+        if (orderLines.length > 0) {
+          setCart(orderLines);
+        }
+      }
+    }
+  }, [convertedOrder, products]);
 
   const selectedShop = useMemo(
     () => shops.find((s) => s.id === Number(selectedShopId)),
@@ -194,6 +226,11 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       setCreatedBill(b);
       setIsPreviewOpen(true);
 
+      if (convertedOrder) {
+        await updateOrderStatus(convertedOrder.id, "BILLED");
+        if (onClearConvertedOrder) onClearConvertedOrder();
+      }
+
       if (onBillingComplete) {
         await onBillingComplete();
       }
@@ -206,6 +243,29 @@ export const BillingPage: React.FC<BillingPageProps> = ({
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] gap-4">
+      {/* Converted Order Banner */}
+      {convertedOrder && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-4 py-2.5 rounded-2xl flex items-center justify-between text-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Receipt className="size-4 text-emerald-600" />
+            <span className="font-bold text-emerald-800 dark:text-emerald-300">
+              Converting Order #{convertedOrder.orderNumber}
+            </span>
+            <span className="text-emerald-600 dark:text-emerald-400">
+              • Preloaded from booking desk for {convertedOrder.shop_name}
+            </span>
+          </div>
+          {onClearConvertedOrder && (
+            <button
+              type="button"
+              onClick={onClearConvertedOrder}
+              className="text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 text-[11px] font-bold underline cursor-pointer"
+            >
+              Clear Order
+            </button>
+          )}
+        </div>
+      )}
       {/* Top Header / Fast Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-theme-xs">
         {/* Shop Selector */}

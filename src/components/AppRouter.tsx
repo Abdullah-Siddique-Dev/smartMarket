@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { NavTab } from "./layout/navTypes";
-import { Product, RetailShop, OrderBooker, Vendor } from "../db/schema";
+import { Product, RetailShop, OrderBooker, Vendor, Order } from "../db/schema";
 
 const BillingPage = lazy(() => import("../pages/Billing").then((m) => ({ default: m.BillingPage })));
 const OrdersPage = lazy(() => import("../pages/Orders").then((m) => ({ default: m.OrdersPage })));
@@ -27,6 +27,9 @@ interface AppRouterProps {
   shops: RetailShop[];
   bookers: OrderBooker[];
   vendors: Vendor[];
+  convertedOrder?: Order | null;
+  onClearConvertedOrder?: () => void;
+  onOrderToBilling?: (order: Order) => void;
   isLoading: boolean;
   fetchAppData: () => Promise<void>;
 }
@@ -38,6 +41,9 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   shops,
   bookers,
   vendors,
+  convertedOrder,
+  onClearConvertedOrder,
+  onOrderToBilling,
   isLoading,
   fetchAppData,
 }) => {
@@ -48,6 +54,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
           products={products}
           shops={shops}
           bookers={bookers}
+          convertedOrder={convertedOrder}
+          onClearConvertedOrder={onClearConvertedOrder}
           onBillingComplete={fetchAppData}
         />
       )}
@@ -57,7 +65,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
           shops={shops}
           bookers={bookers}
           onRefresh={fetchAppData}
-          onNavigateToBilling={() => setActiveTab("billing")}
+          onNavigateToBilling={onOrderToBilling || (() => setActiveTab("billing"))}
         />
       )}
       {activeTab === "dispatch" && (
@@ -97,7 +105,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         <ExpensesPage />
       )}
       {activeTab === "reports" && (
-        <ReportsPage />
+        <ReportsPage products={products} />
       )}
       {activeTab === "audit" && (
         <AuditPage products={products} />

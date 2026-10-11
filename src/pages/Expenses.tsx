@@ -19,6 +19,7 @@ export const ExpensesPage: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [summary, setSummary] = useState({ totalToday: 0, totalThisMonth: 0, totalThisYear: 0 });
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [dateFilter, setDateFilter] = useState<"ALL" | "TODAY" | "THIS_MONTH">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
 
@@ -44,13 +45,19 @@ export const ExpensesPage: React.FC = () => {
   }, []);
 
   const filteredExpenses = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const monthStr = new Date().toISOString().slice(0, 7);
     return expenses.filter((e) => {
       const matchCat = selectedCategory === "ALL" || e.category === selectedCategory;
       const matchSearch =
         !searchQuery.trim() || e.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchCat && matchSearch;
+      const matchDate =
+        dateFilter === "ALL" ||
+        (dateFilter === "TODAY" && e.expenseDate.startsWith(todayStr)) ||
+        (dateFilter === "THIS_MONTH" && e.expenseDate.startsWith(monthStr));
+      return matchCat && matchSearch && matchDate;
     });
-  }, [expenses, selectedCategory, searchQuery]);
+  }, [expenses, selectedCategory, searchQuery, dateFilter]);
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +131,24 @@ export const ExpensesPage: React.FC = () => {
       {/* Filter and Search Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-theme-xs">
         <div className="flex items-center gap-2 overflow-x-auto max-w-full">
+          {/* Date Filter Buttons */}
+          <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-0.5 rounded-xl">
+            {(["ALL", "TODAY", "THIS_MONTH"] as const).map((df) => (
+              <button
+                key={df}
+                type="button"
+                onClick={() => setDateFilter(df)}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                  dateFilter === df
+                    ? "bg-white dark:bg-gray-900 text-brand-600 dark:text-brand-400 shadow-xs"
+                    : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
+                }`}
+              >
+                {df === "ALL" ? "All Dates" : df === "TODAY" ? "Today" : "This Month"}
+              </button>
+            ))}
+          </div>
+
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}

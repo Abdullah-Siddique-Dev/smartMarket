@@ -6,9 +6,12 @@ import {
   ArrowDownLeft,
   AlertTriangle,
   X,
+  Trash2,
+  DollarSign,
+  TrendingUp,
 } from "lucide-react";
 import { Product, Vendor, PRODUCT_UNITS, ProductUnit } from "../db/schema";
-import { addProduct, importStock } from "../db/productService";
+import { addProduct, importStock, deleteProduct } from "../db/productService";
 import { PageHeader } from "../components/ui/PageHeader";
 
 interface InventoryPageProps {
@@ -59,6 +62,36 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     () => products.filter((p) => p.currentStock <= p.minStockAlert).length,
     [products]
   );
+
+  const totalStockInvestment = useMemo(
+    () => products.reduce((acc, p) => acc + (p.currentStock * p.purchasePrice), 0),
+    [products]
+  );
+
+  const totalRetailValuation = useMemo(
+    () => products.reduce((acc, p) => acc + (p.currentStock * p.sellingPrice), 0),
+    [products]
+  );
+
+  const totalUnits = useMemo(
+    () => products.reduce((acc, p) => acc + p.currentStock, 0),
+    [products]
+  );
+
+  const handleDeleteProduct = async (prod: Product) => {
+    if (
+      window.confirm(
+        `Are you sure you want to delete "${prod.name}" (SKU: ${prod.sku})?\n\nThis will remove it from the active wholesale inventory.`
+      )
+    ) {
+      try {
+        await deleteProduct(prod.id);
+        if (onRefresh) onRefresh();
+      } catch (err) {
+        console.error("Failed to delete product:", err);
+      }
+    }
+  };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +178,53 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
           </button>
         </div>
       </PageHeader>
+
+      {/* Total Investment & Inventory Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-theme-xs space-y-1">
+          <div className="flex items-center justify-between text-gray-400">
+            <span className="text-[10px] uppercase font-bold tracking-wider">Total Investment</span>
+            <DollarSign className="size-4 text-emerald-500" />
+          </div>
+          <span className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 block">
+            Rs. {totalStockInvestment.toLocaleString()}
+          </span>
+          <p className="text-[11px] text-gray-400">Capital invested in available stock</p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-theme-xs space-y-1">
+          <div className="flex items-center justify-between text-gray-400">
+            <span className="text-[10px] uppercase font-bold tracking-wider">Retail Valuation</span>
+            <TrendingUp className="size-4 text-brand-500" />
+          </div>
+          <span className="text-2xl font-black font-mono text-brand-600 dark:text-brand-400 block">
+            Rs. {totalRetailValuation.toLocaleString()}
+          </span>
+          <p className="text-[11px] text-gray-400">Expected sales revenue potential</p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-theme-xs space-y-1">
+          <div className="flex items-center justify-between text-gray-400">
+            <span className="text-[10px] uppercase font-bold tracking-wider">Warehouse Units</span>
+            <Boxes className="size-4 text-blue-500" />
+          </div>
+          <span className="text-2xl font-black font-mono text-gray-900 dark:text-gray-100 block">
+            {totalUnits.toLocaleString()}
+          </span>
+          <p className="text-[11px] text-gray-400">Across {products.length} registered SKUs</p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4 rounded-2xl shadow-theme-xs space-y-1">
+          <div className="flex items-center justify-between text-gray-400">
+            <span className="text-[10px] uppercase font-bold tracking-wider">Low Stock Alerts</span>
+            <AlertTriangle className="size-4 text-amber-500" />
+          </div>
+          <span className={`text-2xl font-black font-mono block ${lowStockCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-900 dark:text-gray-100"}`}>
+            {lowStockCount} Products
+          </span>
+          <p className="text-[11px] text-gray-400">Need inward restocking</p>
+        </div>
+      </div>
 
       {/* Search & Filter Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-theme-xs">
@@ -249,13 +329,22 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                           {p.currentStock} {p.unit}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => openImportForProduct(p)}
-                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 transition-colors mr-1"
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 transition-colors mr-1.5 cursor-pointer"
                         >
                           Receive Stock
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProduct(p)}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 transition-colors cursor-pointer"
+                          title="Delete Product"
+                        >
+                          <Trash2 className="size-3.5 inline mr-1" />
+                          Delete
                         </button>
                       </td>
                     </tr>
@@ -334,17 +423,18 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
-                    Opening Stock
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400 block mb-1">
+                    Initial Quantity / Opening Stock *
                   </label>
                   <input
                     type="number"
                     min="0"
-                    value={initialStock || ""}
-                    onChange={(e) => setInitialStock(Number(e.target.value) || 0)}
+                    value={initialStock}
+                    onChange={(e) => setInitialStock(Math.max(0, Number(e.target.value) || 0))}
                     placeholder="0"
-                    className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                    className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border-2 border-brand-500/50 rounded-xl px-3 py-2 text-center"
                   />
+                  <span className="text-[9px] text-gray-400 block mt-0.5">Available warehouse quantity</span>
                 </div>
               </div>
 
@@ -474,33 +564,73 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
-                    Units Received *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    value={importQty}
-                    onChange={(e) => setImportQty(Number(e.target.value) || 0)}
-                    className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-center"
-                  />
+              {/* 3 Stock Quantity Fields requested by client */}
+              <div className="bg-gray-50 dark:bg-gray-800/60 p-3 rounded-2xl border border-gray-100 dark:border-gray-800 space-y-2.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Stock Calculation Breakdown
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
-                    Unit Purchase Cost (Rs.)
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    value={importCost}
-                    onChange={(e) => setImportCost(Number(e.target.value) || 0)}
-                    className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-right"
-                  />
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 dark:text-gray-400 block mb-1">
+                      Current Stock
+                    </label>
+                    <input
+                      type="number"
+                      readOnly
+                      value={products.find((p) => p.id === Number(importProductId))?.currentStock || 0}
+                      className="w-full text-xs font-mono font-bold bg-gray-200/70 dark:bg-gray-700/60 border border-gray-300 dark:border-gray-600 rounded-xl px-2.5 py-2 text-center text-gray-700 dark:text-gray-200 cursor-not-allowed"
+                    />
+                    <span className="text-[9px] text-gray-400 block mt-0.5 text-center">In store now</span>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-brand-600 dark:text-brand-400 block mb-1">
+                      + New Inward Qty
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={importQty}
+                      onChange={(e) => setImportQty(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-full text-xs font-mono font-bold bg-white dark:bg-gray-900 border-2 border-brand-500 rounded-xl px-2.5 py-2 text-center text-brand-600 dark:text-brand-400 focus:outline-none"
+                    />
+                    <span className="text-[9px] text-brand-500 block mt-0.5 text-center">Fresh arrival</span>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block mb-1">
+                      = Total New Stock
+                    </label>
+                    <input
+                      type="number"
+                      min={products.find((p) => p.id === Number(importProductId))?.currentStock || 0}
+                      value={
+                        (products.find((p) => p.id === Number(importProductId))?.currentStock || 0) + importQty
+                      }
+                      onChange={(e) => {
+                        const current = products.find((p) => p.id === Number(importProductId))?.currentStock || 0;
+                        const newTotal = Number(e.target.value) || 0;
+                        setImportQty(Math.max(0, newTotal - current));
+                      }}
+                      className="w-full text-xs font-mono font-bold bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500 rounded-xl px-2.5 py-2 text-center text-emerald-700 dark:text-emerald-300 focus:outline-none"
+                    />
+                    <span className="text-[9px] text-emerald-600 block mt-0.5 text-center">Direct edit total</span>
+                  </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Unit Purchase Cost (Rs.) *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  value={importCost}
+                  onChange={(e) => setImportCost(Number(e.target.value) || 0)}
+                  className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-right"
+                />
               </div>
 
               <div>
