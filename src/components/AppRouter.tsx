@@ -1,21 +1,18 @@
 import { lazy, Suspense } from "react";
 import { NavTab } from "./layout/navTypes";
-import { InventoryItem, CategoryRecord } from "../db/schema";
+import { Product, RetailShop, OrderBooker, Vendor } from "../db/schema";
 
-const DashboardPage = lazy(() => import("../pages/Dashboard").then((m) => ({ default: m.DashboardPage })));
+const BillingPage = lazy(() => import("../pages/Billing").then((m) => ({ default: m.BillingPage })));
+const OrdersPage = lazy(() => import("../pages/Orders").then((m) => ({ default: m.OrdersPage })));
+const DispatchPage = lazy(() => import("../pages/Dispatch").then((m) => ({ default: m.DispatchPage })));
 const InventoryPage = lazy(() => import("../pages/Inventory").then((m) => ({ default: m.InventoryPage })));
-const SalesPage = lazy(() => import("../pages/Sales").then((m) => ({ default: m.SalesPage })));
-const RepairsPage = lazy(() => import("../pages/Repairs").then((m) => ({ default: m.RepairsPage })));
-const AdjustmentsPage = lazy(() => import("../pages/Adjustments").then((m) => ({ default: m.AdjustmentsPage })));
-const PCBuilderPage = lazy(() => import("../pages/PCBuilder").then((m) => ({ default: m.PCBuilderPage })));
-const ReportsPage = lazy(() => import("../pages/Reports").then((m) => ({ default: m.ReportsPage })));
-const CustomersPage = lazy(() => import("../pages/Customers").then((m) => ({ default: m.CustomersPage })));
-const SettingsPage = lazy(() => import("../pages/Settings").then((m) => ({ default: m.SettingsPage })));
-const DocGeneratorPage = lazy(() => import("../pages/DocGenerator").then((m) => ({ default: m.DocGeneratorPage })));
-const PayablesPage = lazy(() => import("../pages/Payables").then((m) => ({ default: m.PayablesPage })));
+const ShopsPage = lazy(() => import("../pages/Shops").then((m) => ({ default: m.ShopsPage })));
+const BookersPage = lazy(() => import("../pages/Bookers").then((m) => ({ default: m.BookersPage })));
+const VendorsPage = lazy(() => import("../pages/Vendors").then((m) => ({ default: m.VendorsPage })));
 const ExpensesPage = lazy(() => import("../pages/Expenses").then((m) => ({ default: m.ExpensesPage })));
-const SalariesPage = lazy(() => import("../pages/Salaries").then((m) => ({ default: m.SalariesPage })));
-const CategoriesPage = lazy(() => import("../pages/Categories").then((m) => ({ default: m.CategoriesPage })));
+const ReportsPage = lazy(() => import("../pages/Reports").then((m) => ({ default: m.ReportsPage })));
+const AuditPage = lazy(() => import("../pages/Audit").then((m) => ({ default: m.AuditPage })));
+const SettingsPage = lazy(() => import("../pages/Settings").then((m) => ({ default: m.SettingsPage })));
 
 const PageLoader = () => (
   <div className="flex h-64 w-full items-center justify-center">
@@ -26,63 +23,88 @@ const PageLoader = () => (
 interface AppRouterProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
-  items: InventoryItem[];
-  categories?: CategoryRecord[];
+  products: Product[];
+  shops: RetailShop[];
+  bookers: OrderBooker[];
+  vendors: Vendor[];
   isLoading: boolean;
-  fetchItems: () => Promise<void>;
-  salesInitialItems: InventoryItem[];
-  setSalesInitialItems: (items: InventoryItem[]) => void;
+  fetchAppData: () => Promise<void>;
 }
 
 export const AppRouter: React.FC<AppRouterProps> = ({
   activeTab,
   setActiveTab,
-  items,
-  categories = [],
+  products,
+  shops,
+  bookers,
+  vendors,
   isLoading,
-  fetchItems,
-  salesInitialItems,
-  setSalesInitialItems,
+  fetchAppData,
 }) => {
   return (
     <Suspense fallback={<PageLoader />}>
-      {activeTab === "dashboard" && (
-        <DashboardPage
-          items={items}
-          onNavigateToInventory={() => setActiveTab("inventory")}
-          onNavigateToSales={() => { setSalesInitialItems([]); setActiveTab("sales"); }}
-          onNavigateToPCBuilder={() => setActiveTab("pc-builder")}
-          onNavigateToRepairs={() => setActiveTab("repairs")}
-          onNavigateToAdjustments={() => setActiveTab("adjustments")}
+      {activeTab === "billing" && (
+        <BillingPage
+          products={products}
+          shops={shops}
+          bookers={bookers}
+          onBillingComplete={fetchAppData}
         />
       )}
-      {activeTab === "sales" && (
-        <SalesPage items={items} categories={categories} onSaleComplete={fetchItems} initialCartItems={salesInitialItems} />
+      {activeTab === "orders" && (
+        <OrdersPage
+          products={products}
+          shops={shops}
+          bookers={bookers}
+          onRefresh={fetchAppData}
+          onNavigateToBilling={() => setActiveTab("billing")}
+        />
       )}
-      {activeTab === "doc-generator" && (
-        <DocGeneratorPage items={items} />
+      {activeTab === "dispatch" && (
+        <DispatchPage
+          products={products}
+          bookers={bookers}
+          onRefresh={fetchAppData}
+        />
       )}
       {activeTab === "inventory" && (
-        <InventoryPage items={items} categories={categories} isLoading={isLoading} onRefresh={fetchItems} />
+        <InventoryPage
+          products={products}
+          vendors={vendors}
+          isLoading={isLoading}
+          onRefresh={fetchAppData}
+        />
       )}
-      {activeTab === "categories" && (
-        <CategoriesPage categories={categories} items={items} onRefresh={fetchItems} />
+      {activeTab === "shops" && (
+        <ShopsPage
+          shops={shops}
+          onRefresh={fetchAppData}
+        />
       )}
-      {activeTab === "repairs" && (
-        <RepairsPage items={items} onRefreshInventory={fetchItems} />
+      {activeTab === "bookers" && (
+        <BookersPage
+          bookers={bookers}
+          onRefresh={fetchAppData}
+        />
       )}
-      {activeTab === "adjustments" && (
-        <AdjustmentsPage items={items} onRefreshInventory={fetchItems} />
+      {activeTab === "vendors" && (
+        <VendorsPage
+          vendors={vendors}
+          onRefresh={fetchAppData}
+        />
       )}
-      {activeTab === "reports" && <ReportsPage />}
-      {activeTab === "expenses" && <ExpensesPage />}
-      {activeTab === "salaries" && <SalariesPage />}
-      {activeTab === "pc-builder" && (
-        <PCBuilderPage items={items} onTransferToSales={(parts) => { setSalesInitialItems(parts); setActiveTab("sales"); }} />
+      {activeTab === "expenses" && (
+        <ExpensesPage />
       )}
-      {activeTab === "customers" && <CustomersPage />}
-      {activeTab === "payables" && <PayablesPage onRefreshInventory={fetchItems} />}
-      {activeTab === "settings" && <SettingsPage />}
+      {activeTab === "reports" && (
+        <ReportsPage />
+      )}
+      {activeTab === "audit" && (
+        <AuditPage products={products} />
+      )}
+      {activeTab === "settings" && (
+        <SettingsPage />
+      )}
     </Suspense>
   );
 };

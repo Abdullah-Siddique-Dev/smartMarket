@@ -1,196 +1,73 @@
 import { isTauriEnvironment, memoryStore, getSqlDb } from "./client";
-import { ExpenseRecord, CreateExpenseInput, ExpenseCategory } from "./schema";
+import { Expense, NewExpense, ExpenseCategory } from "./schema";
 
-export interface RecurringTemplate {
-  title: string;
-  category: ExpenseCategory;
-  amount: number;
-  paymentMethod: string;
-  notes?: string;
-}
-
-export const DEFAULT_RECURRING_TEMPLATES: RecurringTemplate[] = [
-  { title: "SHOP RENT", category: "RENT", amount: 25000, paymentMethod: "CASH", notes: "Monthly store premises rent" },
-  { title: "SHOP ELECTRICITY BILL", category: "UTILITIES", amount: 5000, paymentMethod: "CASH", notes: "WAPDA / Electricity bill" },
-  { title: "TELEPHONE BILL", category: "UTILITIES", amount: 3700, paymentMethod: "CASH", notes: "PTCL Landline" },
-  { title: "FARHAN BAHI SALARY", category: "SALARY", amount: 30000, paymentMethod: "CASH", notes: "Staff salary" },
-  { title: "TASNIM SALARY", category: "SALARY", amount: 30000, paymentMethod: "CASH", notes: "Staff salary" },
-  { title: "ARSLAN BAHI SALARY", category: "SALARY", amount: 17000, paymentMethod: "CASH", notes: "Staff salary" },
-  { title: "CHOKIDARA", category: "SECURITY_GUARD", amount: 300, paymentMethod: "CASH", notes: "Security guard fee" },
-  { title: "NET FLEX", category: "INTERNET", amount: 800, paymentMethod: "CASH", notes: "Shop internet connection" },
-  { title: "TELENOR POST PAID BILL", category: "UTILITIES", amount: 1200, paymentMethod: "CASH", notes: "Shop mobile post-paid" },
-];
-
-export const RECURRING_EXPENSE_TEMPLATES = DEFAULT_RECURRING_TEMPLATES;
-
-export async function getRecurringTemplates(): Promise<RecurringTemplate[]> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-
-  if (isTauri && sqlDb) {
-    try {
-      const rows = await sqlDb.select<{ key: string; value: string }[]>(
-        "SELECT value FROM settings WHERE key = 'recurring_expense_templates'"
-      );
-      if (rows.length > 0 && rows[0].value) {
-        const parsed = JSON.parse(rows[0].value);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load recurring templates from SQLite:", e);
-    }
-  }
-
-  // Fallback to in-memory store in non-Tauri browser preview
-  const memVal = memoryStore.settings["recurring_expense_templates"];
-  if (memVal) {
-    try {
-      const parsed = JSON.parse(memVal);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  return DEFAULT_RECURRING_TEMPLATES;
-}
-
-export async function saveRecurringTemplates(templates: RecurringTemplate[]): Promise<void> {
-  const jsonStr = JSON.stringify(templates);
-
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-
-  if (isTauri && sqlDb) {
-    try {
-      await sqlDb.execute(
-        "INSERT INTO settings (key, value) VALUES ('recurring_expense_templates', $1) ON CONFLICT(key) DO UPDATE SET value = $1",
-        [jsonStr]
-      );
-    } catch (e) {
-      console.warn("Failed to persist recurring templates to SQLite:", e);
-    }
-  }
-
-  // Update in-memory store
-  memoryStore.settings["recurring_expense_templates"] = jsonStr;
-}
-
-export async function getExpensesByMonth(year: number, month: number): Promise<ExpenseRecord[]> {
+export async function getExpenses(): Promise<Expense[]> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
 
   if (isTauri && sqlDb) {
     try {
       const rows = await sqlDb.select<any[]>(
-        `SELECT id, year, month, category, title, amount, expense_date as expenseDate, 
-                payment_method as paymentMethod, notes, created_at as createdAt
-         FROM expenses 
-         WHERE year = $1 AND month = $2 
-         ORDER BY expense_date DESC, id DESC`,
-        [year, month]
+        `SELECT e.*, u.full_name as creator_name
+         FROM expenses e
+         LEFT JOIN system_users u ON e.created_by = u.id
+         ORDER BY e.expense_date DESC, e.id DESC`
       );
       return rows.map((r) => ({
         id: Number(r.id),
-        year: Number(r.year),
-        month: Number(r.month),
-        category: r.category || "MISC",
-        title: r.title,
+        expenseDate: String(r.expense_date),
+        category: r.category as ExpenseCategory,
         amount: Number(r.amount),
-        expenseDate: Number(r.expenseDate),
-        paymentMethod: r.paymentMethod || "CASH",
-        notes: r.notes || "",
-        createdAt: Number(r.createdAt || r.expenseDate),
+        description: String(r.description),
+        paymentMethod: String(r.payment_method),
+        createdBy: Number(r.created_by),
+        creator_name: r.creator_name ? String(r.creator_name) : "Admin",
+        createdAt: String(r.created_at),
       }));
-    } catch (e) {
-      console.error("Failed to fetch expenses from SQLite:", e);
+    } catch (err) {
+      console.error("Failed to query expenses:", err);
     }
   }
 
-  return memoryStore.expenses
-    .filter((e) => e.year === year && e.month === month)
-    .sort((a, b) => b.expenseDate - a.expenseDate);
+  return memoryStore.expenses;
 }
 
-export async function createExpense(input: CreateExpenseInput): Promise<number> {
+export async function addExpense(expense: Omit<NewExpense, "id" | "createdAt">): Promise<number> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
-  const now = Math.floor(Date.now() / 1000);
-  const expenseDate = input.expenseDate || now;
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const amount = Number(expense.amount) || 0;
 
   if (isTauri && sqlDb) {
-    try {
-      const result = await sqlDb.execute(
-        `INSERT INTO expenses (year, month, category, title, amount, expense_date, payment_method, notes, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          input.year,
-          input.month,
-          input.category || "MISC",
-          input.title,
-          input.amount || 0,
-          expenseDate,
-          input.paymentMethod || "CASH",
-          input.notes || "",
-          now,
-        ]
-      );
-      return Number(result.lastInsertId);
-    } catch (e) {
-      console.error("Failed to insert expense into SQLite:", e);
-      throw e;
-    }
+    const res = await sqlDb.execute(
+      `INSERT INTO expenses (expense_date, category, amount, description, payment_method, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, 1, $6)`,
+      [
+        expense.expenseDate || today,
+        expense.category,
+        amount,
+        expense.description.trim(),
+        expense.paymentMethod || "CASH",
+        now,
+      ]
+    );
+    return Number(res.lastInsertId) || 1;
   }
 
-  const nextId =
-    memoryStore.expenses.length > 0 ? Math.max(...memoryStore.expenses.map((e) => e.id)) + 1 : 1;
-  const newExp = {
-    id: nextId,
-    year: input.year,
-    month: input.month,
-    category: (input.category || "MISC") as any,
-    title: input.title,
-    amount: input.amount || 0,
-    expenseDate,
-    paymentMethod: input.paymentMethod || "CASH",
-    notes: input.notes ?? null,
+  const newId = memoryStore.expenses.length > 0 ? Math.max(...memoryStore.expenses.map((e) => e.id)) + 1 : 1;
+  memoryStore.expenses.unshift({
+    id: newId,
+    expenseDate: expense.expenseDate || today,
+    category: expense.category,
+    amount,
+    description: expense.description.trim(),
+    paymentMethod: expense.paymentMethod || "CASH",
+    createdBy: 1,
+    creator_name: "Business Owner",
     createdAt: now,
-  };
-  memoryStore.expenses.push(newExp);
-  return nextId;
-}
-
-export async function updateExpense(id: number, input: Partial<CreateExpenseInput>): Promise<void> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-
-  if (isTauri && sqlDb) {
-    const sets: string[] = [];
-    const params: any[] = [];
-    let idx = 1;
-
-    if (input.year !== undefined) { sets.push(`year = $${idx++}`); params.push(input.year); }
-    if (input.month !== undefined) { sets.push(`month = $${idx++}`); params.push(input.month); }
-    if (input.title !== undefined) { sets.push(`title = $${idx++}`); params.push(input.title); }
-    if (input.category !== undefined) { sets.push(`category = $${idx++}`); params.push(input.category); }
-    if (input.amount !== undefined) { sets.push(`amount = $${idx++}`); params.push(input.amount); }
-    if (input.expenseDate !== undefined) { sets.push(`expense_date = $${idx++}`); params.push(input.expenseDate); }
-    if (input.paymentMethod !== undefined) { sets.push(`payment_method = $${idx++}`); params.push(input.paymentMethod); }
-    if (input.notes !== undefined) { sets.push(`notes = $${idx++}`); params.push(input.notes); }
-
-    if (sets.length > 0) {
-      params.push(id);
-      await sqlDb.execute(`UPDATE expenses SET ${sets.join(", ")} WHERE id = $${idx}`, params);
-    }
-    return;
-  }
-
-  const item = memoryStore.expenses.find((e) => e.id === id);
-  if (item) {
-    Object.assign(item, input);
-  }
+  });
+  return newId;
 }
 
 export async function deleteExpense(id: number): Promise<void> {
@@ -198,64 +75,32 @@ export async function deleteExpense(id: number): Promise<void> {
   const sqlDb = await getSqlDb();
 
   if (isTauri && sqlDb) {
-    await sqlDb.execute(`DELETE FROM expenses WHERE id = $1`, [id]);
+    await sqlDb.execute("DELETE FROM expenses WHERE id = $1", [id]);
     return;
   }
 
   const idx = memoryStore.expenses.findIndex((e) => e.id === id);
-  if (idx !== -1) {
-    memoryStore.expenses.splice(idx, 1);
-  }
+  if (idx !== -1) memoryStore.expenses.splice(idx, 1);
 }
 
-export async function getMonthlyExpenseSummary(
-  year: number,
-  month: number
-): Promise<{ total: number; byCategory: Record<string, number> }> {
-  const items = await getExpensesByMonth(year, month);
-  let total = 0;
-  const byCategory: Record<string, number> = {};
-
-  for (const item of items) {
-    total += item.amount;
-    byCategory[item.category] = (byCategory[item.category] || 0) + item.amount;
-  }
-
-  return { total, byCategory };
-}
-
-export async function applyRecurringExpenses(
-  year: number,
-  month: number,
-  templatesToApply?: RecurringTemplate[]
-): Promise<{ applied: number; skipped: number }> {
-  const templates = templatesToApply || (await getRecurringTemplates());
-  const existing = await getExpensesByMonth(year, month);
-  const existingTitles = new Set(existing.map((e) => e.title.trim().toUpperCase()));
-
-  let applied = 0;
-  let skipped = 0;
+export async function getExpenseSummary() {
+  const expenses = await getExpenses();
   const now = new Date();
-  const targetDay = (now.getFullYear() === year && now.getMonth() + 1 === month) ? now.getDate() : 1;
-  const expenseDateUnix = Math.floor(new Date(year, month - 1, targetDay, 12, 0, 0).getTime() / 1000);
+  const todayStr = now.toISOString().slice(0, 10);
+  const monthStr = now.toISOString().slice(0, 7);
+  const yearStr = now.toISOString().slice(0, 4);
 
-  for (const tmpl of templates) {
-    if (existingTitles.has(tmpl.title.trim().toUpperCase())) {
-      skipped++;
-      continue;
-    }
-    await createExpense({
-      year,
-      month,
-      category: tmpl.category,
-      title: tmpl.title.trim(),
-      amount: tmpl.amount,
-      expenseDate: expenseDateUnix,
-      paymentMethod: tmpl.paymentMethod || "CASH",
-      notes: tmpl.notes || "Monthly recurring overhead",
-    });
-    applied++;
-  }
+  const totalToday = expenses
+    .filter((e) => e.expenseDate.startsWith(todayStr))
+    .reduce((sum, e) => sum + e.amount, 0);
 
-  return { applied, skipped };
+  const totalThisMonth = expenses
+    .filter((e) => e.expenseDate.startsWith(monthStr))
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const totalThisYear = expenses
+    .filter((e) => e.expenseDate.startsWith(yearStr))
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  return { totalToday, totalThisMonth, totalThisYear };
 }

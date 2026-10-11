@@ -10,14 +10,16 @@ export function useGlobalShortcuts(
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const keyMap: Record<string, NavTab> = {
-        F1: "dashboard",
-        F2: "sales",
-        F3: "inventory",
-        F4: "repairs",
-        F5: "adjustments",
-        F6: "pc-builder",
-        F7: "customers",
-        F8: "settings",
+        F1: "billing",
+        F2: "orders",
+        F3: "dispatch",
+        F4: "inventory",
+        F5: "shops",
+        F6: "bookers",
+        F7: "vendors",
+        F8: "expenses",
+        F9: "reports",
+        F10: "settings",
       };
 
       if (keyMap[e.key]) {

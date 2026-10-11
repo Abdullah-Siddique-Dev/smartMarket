@@ -1,488 +1,259 @@
 import { isTauriEnvironment, memoryStore, getSqlDb } from "./client";
-import { SaleRecord, SaleLineItem, PaymentMethod, PaymentStatus, CreateSaleInput } from "./schema";
-import { findOrCreateCustomer } from "./customerService";
+import { Bill, BillItem, PaymentStatus } from "./schema";
 
-export type { CreateSaleInput };
-
-export async function getNextSequenceInvoiceNo(prefix: "INV" | "RCV" = "INV"): Promise<string> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-  const year = new Date().getFullYear();
-  const prefixYear = `${prefix}-${year}-`;
-
-  let maxSeq = 0;
-
-  if (isTauri && sqlDb) {
-    try {
-      const rows = await sqlDb.select<{ max_seq: number | null }[]>(
-        `SELECT MAX(CAST(SUBSTR(invoice_no, 10) AS INTEGER)) as max_seq FROM sales WHERE invoice_no LIKE $1`,
-        [`${prefixYear}%`]
-      );
-      if (rows && rows[0] && rows[0].max_seq != null) {
-        maxSeq = Number(rows[0].max_seq) || 0;
-      }
-    } catch (e) {
-      console.error("Failed to query invoice sequence in SQLite:", e);
-    }
-  }
-
-  for (const s of memoryStore.sales) {
-    if ((s.invoiceNo || "").startsWith(prefixYear)) {
-      const parts = (s.invoiceNo || "").split("-");
-      if (parts.length >= 3) {
-        const num = parseInt(parts[2], 10);
-        if (!isNaN(num) && num > maxSeq) {
-          maxSeq = num;
-        }
-      }
-    }
-  }
-
-  const candidate = maxSeq + 1;
-  return `${prefixYear}${String(candidate).padStart(3, "0")}`;
-}
-
-export async function createSaleTransaction(input: CreateSaleInput): Promise<string> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-  const invoiceNo = await getNextSequenceInvoiceNo("INV");
-  const now = Math.floor(Date.now() / 1000);
-
-  const subtotalInt = Math.round(Number(input.subtotal) || 0);
-  const discountInt = Math.round(Number(input.discount) || 0);
-  const taxInt = Math.round(Number(input.tax) || 0);
-  const totalAmountInt = Math.round(Number(input.totalAmount) || 0);
-  const rawPaid = input.paidAmount !== undefined ? Number(input.paidAmount) : totalAmountInt;
-  const paidInt = Math.max(0, Math.min(totalAmountInt, Math.round(rawPaid)));
-  const balanceDueInt = Math.max(0, totalAmountInt - paidInt);
-
-  let paymentStatus: PaymentStatus = "PAID";
-  if (totalAmountInt > 0 && paidInt <= 0) {
-    paymentStatus = "UNPAID";
-  } else if (paidInt < totalAmountInt) {
-    paymentStatus = "PARTIAL";
-  }
-
-  let custId = input.customerId;
-  if (!custId && input.customerPhone) {
-    custId = await findOrCreateCustomer(
-      input.customerName || "Customer",
-      input.customerPhone,
-      input.customerAddress || ""
-    );
-  }
-
-  // Pre-resolve costs before write-transaction to prevent pool lock contention
-  const resolvedItems = await Promise.all(
-    input.items.map(async (item) => {
-      const unitPriceInt = Math.round(Number(item.unitPrice) || 0);
-      const qtyInt = Math.round(Number(item.quantity) || 1);
-      const lineTotalInt = unitPriceInt * qtyInt;
-      let costPriceInt = Math.round(Number(item.costPrice) || 0);
-
-      if (costPriceInt <= 0 && item.inventoryId && isTauri && sqlDb) {
-        try {
-          const invCost = await sqlDb.select<{ cost_price: number }[]>(
-            "SELECT cost_price FROM inventory WHERE id = $1 LIMIT 1",
-            [item.inventoryId]
-          );
-          if (invCost && invCost.length > 0) {
-            costPriceInt = Math.round(Number(invCost[0].cost_price) || 0);
-          }
-        } catch {}
-      }
-
-      return {
-        ...item,
-        unitPriceInt,
-        qtyInt,
-        lineTotalInt,
-        costPriceInt,
-      };
-    })
-  );
-
-  if (isTauri && sqlDb) {
-    const saleRes = await sqlDb.execute(
-      `INSERT INTO sales (
-        invoice_no, customer_id, customer_name, customer_phone,
-        subtotal, discount, tax, total_amount, paid_amount,
-        payment_status, balance_due, payment_method, notes, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-      [
-        invoiceNo,
-        custId || null,
-        input.customerName || "Walk-in Customer",
-        input.customerPhone || "",
-        subtotalInt,
-        discountInt,
-        taxInt,
-        totalAmountInt,
-        paidInt,
-        paymentStatus,
-        balanceDueInt,
-        input.paymentMethod,
-        input.notes || "",
-        now,
-      ]
-    );
-
-    let saleId = Number((saleRes as any)?.lastInsertId ?? (saleRes as any)?.last_insert_rowid ?? 0);
-    if (!saleId || isNaN(saleId) || saleId <= 0) {
-      const found = await sqlDb.select<{ id: number }[]>(
-        "SELECT id FROM sales WHERE invoice_no = $1 LIMIT 1",
-        [invoiceNo]
-      );
-      if (found && found.length > 0) {
-        saleId = Number(found[0].id);
-      }
-    }
-
-    for (const item of resolvedItems) {
-      await sqlDb.execute(
-        `INSERT INTO sale_items (sale_id, inventory_id, item_name, serial_number, quantity, unit_price, cost_price, total_price)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [saleId, item.inventoryId, item.itemName, item.serialNumber || null, item.qtyInt, item.unitPriceInt, item.costPriceInt, item.lineTotalInt]
-      );
-
-      if (item.inventoryId) {
-        await sqlDb.execute(
-          `UPDATE inventory SET quantity = MAX(0, quantity - $1) WHERE id = $2`,
-          [item.qtyInt, item.inventoryId]
-        );
-      }
-
-      if (item.serialNumber) {
-        await sqlDb.execute(
-          `UPDATE inventory_serials SET status = 'SOLD' WHERE serial_number = $1`,
-          [item.serialNumber]
-        );
-      }
-    }
-
-    return invoiceNo;
-  }
-
-  // Browser Fallback
-  const newSaleId = memoryStore.sales.length > 0 ? Math.max(...memoryStore.sales.map((s) => s.id)) + 1 : 1;
-  const newSale: SaleRecord = {
-    id: newSaleId,
-    invoiceNo,
-    customerId: custId || null,
-    customerName: input.customerName || "Walk-in Customer",
-    customerPhone: input.customerPhone || "",
-    subtotal: subtotalInt,
-    discount: discountInt,
-    tax: taxInt,
-    totalAmount: totalAmountInt,
-    paidAmount: paidInt,
-    paymentStatus,
-    balanceDue: balanceDueInt,
-    paymentMethod: input.paymentMethod,
-    notes: input.notes || "",
-    isBadDebt: 0,
-    dueDate: null,
-    createdAt: now,
-  };
-
-  memoryStore.sales.unshift(newSale);
-
-  for (const item of input.items) {
-    const unitPriceInt = Math.round(Number(item.unitPrice) || 0);
-    const qtyInt = Math.round(Number(item.quantity) || 1);
-    const lineTotalInt = unitPriceInt * qtyInt;
-    const inv = memoryStore.inventory.find((i) => i.id === item.inventoryId);
-    const costPriceInt = Math.round(Number(item.costPrice) || inv?.costPrice || 0);
-    const newItemId = memoryStore.saleItems.length > 0 ? Math.max(...memoryStore.saleItems.map((si) => si.id)) + 1 : 1;
-    memoryStore.saleItems.push({
-      id: newItemId,
-      saleId: newSaleId,
-      inventoryId: item.inventoryId,
-      itemName: item.itemName,
-      serialNumber: item.serialNumber || null,
-      quantity: qtyInt,
-      unitPrice: unitPriceInt,
-      costPrice: costPriceInt,
-      totalPrice: lineTotalInt,
-    });
-
-    if (inv) {
-      inv.quantity = Math.max(0, inv.quantity - qtyInt);
-    }
-
-    if (item.serialNumber) {
-      const serial = memoryStore.serials.find(
-        (s) => s.serialNumber.toUpperCase() === item.serialNumber!.toUpperCase()
-      );
-      if (serial) serial.status = "SOLD";
-    }
-  }
-
-  return invoiceNo;
-}
-
-export async function getRecentSales(limit = 100): Promise<SaleRecord[]> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-
-  if (isTauri && sqlDb) {
-    const rows = await sqlDb.select<any[]>(
-      `SELECT * FROM sales ORDER BY created_at DESC LIMIT $1`,
-      [limit]
-    );
-    return rows.map((r) => ({
-      id: Number(r.id),
-      invoiceNo: String(r.invoice_no || r.invoiceNo || ""),
-      customerId: r.customer_id != null ? Number(r.customer_id) : r.customerId != null ? Number(r.customerId) : null,
-      customerName: String(r.customer_name || r.customerName || "Walk-in Customer"),
-      customerPhone: String(r.customer_phone || r.customerPhone || ""),
-      subtotal: Math.round(Number(r.subtotal) || 0),
-      discount: Math.round(Number(r.discount) || 0),
-      tax: Math.round(Number(r.tax) || 0),
-      totalAmount: Math.round(Number(r.total_amount ?? r.totalAmount ?? 0)),
-      paidAmount: Math.round(Number(r.paid_amount ?? r.paidAmount ?? (r.total_amount ?? r.totalAmount ?? 0))),
-      paymentStatus: (r.payment_status || r.paymentStatus || "PAID") as PaymentStatus,
-      balanceDue: Math.round(Number(r.balance_due ?? r.balanceDue ?? 0)),
-      paymentMethod: (r.payment_method || r.paymentMethod || "CASH") as PaymentMethod,
-      notes: String(r.notes || ""),
-      isBadDebt: Number(r.is_bad_debt || r.isBadDebt || 0),
-      dueDate: r.due_date ? Number(r.due_date) : r.dueDate ? Number(r.dueDate) : null,
-      createdAt: Number(r.created_at ?? r.createdAt ?? Math.floor(Date.now() / 1000)),
-    }));
-  }
-
-  return [...memoryStore.sales].slice(0, limit);
-}
-
-export async function getSaleItems(saleId: number): Promise<SaleLineItem[]> {
+export async function getBills(): Promise<Bill[]> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
 
   if (isTauri && sqlDb) {
     try {
       const rows = await sqlDb.select<any[]>(
-        `SELECT * FROM sale_items WHERE sale_id = $1`,
-        [saleId]
+        `SELECT b.*, rs.shop_name, rs.phone as shop_phone, rs.address as shop_address, ob.name as booker_name, u.full_name as creator_name
+         FROM bills b
+         JOIN retail_shops rs ON b.shop_id = rs.id
+         LEFT JOIN order_bookers ob ON b.order_booker_id = ob.id
+         LEFT JOIN system_users u ON b.created_by = u.id
+         ORDER BY b.id DESC LIMIT 200`
       );
       return rows.map((r) => ({
         id: Number(r.id),
-        saleId: Number(r.sale_id ?? r.saleId),
-        inventoryId: Number(r.inventory_id ?? r.inventoryId),
-        itemName: String(r.item_name ?? r.itemName ?? ""),
-        serialNumber: r.serial_number ?? r.serialNumber ?? undefined,
-        quantity: Math.round(Number(r.quantity) || 1),
-        unitPrice: Math.round(Number(r.unit_price ?? r.unitPrice ?? 0)),
-        costPrice: Math.round(Number(r.cost_price ?? r.costPrice ?? 0)),
-        totalPrice: Math.round(Number(r.total_price ?? r.totalPrice ?? 0)),
+        billNumber: String(r.bill_number),
+        orderId: r.order_id ? Number(r.order_id) : null,
+        shopId: Number(r.shop_id),
+        shop_name: String(r.shop_name),
+        shop_phone: r.shop_phone ? String(r.shop_phone) : null,
+        shop_address: r.shop_address ? String(r.shop_address) : null,
+        orderBookerId: r.order_booker_id ? Number(r.order_booker_id) : null,
+        booker_name: r.booker_name ? String(r.booker_name) : null,
+        billDate: String(r.bill_date),
+        subtotal: Number(r.subtotal),
+        discountAmount: Number(r.discount_amount),
+        netAmount: Number(r.net_amount),
+        paidAmount: Number(r.paid_amount),
+        paymentStatus: r.payment_status as PaymentStatus,
+        createdBy: Number(r.created_by),
+        creator_name: r.creator_name ? String(r.creator_name) : "Admin",
+        createdAt: String(r.created_at),
       }));
     } catch (err) {
-      console.error("Failed to fetch sale items:", err);
+      console.error("Failed to query bills:", err);
     }
   }
 
-  return memoryStore.saleItems.filter((i) => Number(i.saleId) === Number(saleId));
+  return memoryStore.bills;
 }
 
-export async function getAllSaleItems(): Promise<SaleLineItem[]> {
+export async function getBillById(id: number): Promise<Bill | null> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
 
   if (isTauri && sqlDb) {
     try {
-      const rows = await sqlDb.select<any[]>("SELECT * FROM sale_items ORDER BY id DESC");
-      return rows.map((r) => ({
-        id: Number(r.id),
-        saleId: Number(r.sale_id ?? r.saleId),
-        inventoryId: Number(r.inventory_id ?? r.inventoryId),
-        itemName: String(r.item_name ?? r.itemName ?? ""),
-        serialNumber: r.serial_number ?? r.serialNumber ?? undefined,
-        quantity: Math.round(Number(r.quantity) || 1),
-        unitPrice: Math.round(Number(r.unit_price ?? r.unitPrice ?? 0)),
-        costPrice: Math.round(Number(r.cost_price ?? r.costPrice ?? 0)),
-        totalPrice: Math.round(Number(r.total_price ?? r.totalPrice ?? 0)),
+      const rows = await sqlDb.select<any[]>(
+        `SELECT b.*, rs.shop_name, rs.phone as shop_phone, rs.address as shop_address, ob.name as booker_name, u.full_name as creator_name
+         FROM bills b
+         JOIN retail_shops rs ON b.shop_id = rs.id
+         LEFT JOIN order_bookers ob ON b.order_booker_id = ob.id
+         LEFT JOIN system_users u ON b.created_by = u.id
+         WHERE b.id = $1`,
+        [id]
+      );
+      if (!rows || rows.length === 0) return null;
+      const r = rows[0];
+
+      const itemRows = await sqlDb.select<any[]>(
+        `SELECT bi.*, p.name as product_name, p.sku
+         FROM bill_items bi
+         JOIN products p ON bi.product_id = p.id
+         WHERE bi.bill_id = $1`,
+        [id]
+      );
+
+      const items: BillItem[] = itemRows.map((it) => ({
+        id: Number(it.id),
+        billId: Number(it.bill_id),
+        productId: Number(it.product_id),
+        product_name: String(it.product_name),
+        sku: String(it.sku),
+        quantity: Number(it.quantity),
+        unitSellingPrice: Number(it.unit_selling_price),
+        unitPurchasePrice: Number(it.unit_purchase_price),
+        lineTotal: Number(it.line_total),
+        lineProfit: Number(it.line_profit),
       }));
+
+      return {
+        id: Number(r.id),
+        billNumber: String(r.bill_number),
+        orderId: r.order_id ? Number(r.order_id) : null,
+        shopId: Number(r.shop_id),
+        shop_name: String(r.shop_name),
+        shop_phone: r.shop_phone ? String(r.shop_phone) : null,
+        shop_address: r.shop_address ? String(r.shop_address) : null,
+        orderBookerId: r.order_booker_id ? Number(r.order_booker_id) : null,
+        booker_name: r.booker_name ? String(r.booker_name) : null,
+        billDate: String(r.bill_date),
+        subtotal: Number(r.subtotal),
+        discountAmount: Number(r.discount_amount),
+        netAmount: Number(r.net_amount),
+        paidAmount: Number(r.paid_amount),
+        paymentStatus: r.payment_status as PaymentStatus,
+        createdBy: Number(r.created_by),
+        creator_name: r.creator_name ? String(r.creator_name) : "Admin",
+        createdAt: String(r.created_at),
+        items,
+      };
     } catch (err) {
-      console.error("Failed to query all sale items:", err);
+      console.error("Failed to query bill by id:", err);
     }
   }
 
-  return [...memoryStore.saleItems];
+  const b = memoryStore.bills.find((bill) => bill.id === id);
+  if (!b) return null;
+  const items = memoryStore.billItems.filter((it) => it.billId === id);
+  return { ...b, items };
 }
 
-export async function processSalePayment(
-  saleId: number,
-  paymentAmount: number,
-  _paymentMethod: PaymentMethod = "CASH"
-): Promise<void> {
+export async function createBill(
+  billData: {
+    shopId: number;
+    orderId?: number | null;
+    orderBookerId?: number | null;
+    subtotal: number;
+    discountAmount: number;
+    netAmount: number;
+    paidAmount: number;
+    paymentStatus: PaymentStatus;
+    deductStock?: boolean;
+  },
+  items: Array<{ productId: number; quantity: number; unitSellingPrice: number }>
+): Promise<number> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
-  const amountToAdd = Math.round(Number(paymentAmount) || 0);
+  const now = new Date().toISOString();
+  const billNumber = `INV-${Date.now().toString().slice(-6)}`;
+  const unpaidDifference = billData.netAmount - billData.paidAmount;
 
   if (isTauri && sqlDb) {
-    const found = await sqlDb.select<any[]>(
-      "SELECT * FROM sales WHERE id = $1 LIMIT 1",
-      [saleId]
-    );
-    if (found.length > 0) {
-      const sale = found[0];
-      const totalAmount = Math.round(Number(sale.total_amount ?? sale.totalAmount ?? 0));
-      const currentPaid = Math.round(Number(sale.paid_amount ?? sale.paidAmount ?? 0));
-      const newPaid = Math.min(totalAmount, currentPaid + amountToAdd);
-      const newBalance = Math.max(0, totalAmount - newPaid);
-      const newStatus: PaymentStatus = newBalance === 0 ? "PAID" : newPaid === 0 ? "UNPAID" : "PARTIAL";
-
-      // When payment is collected, the debt is no longer considered an unrecoverable bad debt
-      await sqlDb.execute(
-        `UPDATE sales SET paid_amount = $1, balance_due = $2, payment_status = $3, is_bad_debt = 0 WHERE id = $4`,
-        [newPaid, newBalance, newStatus, saleId]
-      );
-    }
-    return;
-  }
-
-  const s = memoryStore.sales.find((item) => Number(item.id) === Number(saleId));
-  if (s) {
-    const totalAmount = Math.round(Number(s.totalAmount || 0));
-    const currentPaid = Math.round(Number(s.paidAmount || 0));
-    const newPaid = Math.min(totalAmount, currentPaid + amountToAdd);
-    s.paidAmount = newPaid;
-    s.balanceDue = Math.max(0, totalAmount - newPaid);
-    s.paymentStatus = s.balanceDue === 0 ? "PAID" : newPaid === 0 ? "UNPAID" : "PARTIAL";
-    s.isBadDebt = 0;
-  }
-}
-
-export async function deleteSale(id: number): Promise<void> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-
-  if (isTauri && sqlDb) {
-    const items = await sqlDb.select<any[]>(
-      "SELECT inventory_id, quantity, serial_number FROM sale_items WHERE sale_id = $1",
-      [id]
-    );
-
-    for (const item of items) {
-      const invId = Number(item.inventory_id ?? item.inventoryId);
-      const qty = Math.round(Number(item.quantity) || 1);
-      const serial = item.serial_number ?? item.serialNumber;
-
-      if (invId) {
-        await sqlDb.execute(
-          "UPDATE inventory SET quantity = quantity + $1 WHERE id = $2",
-          [qty, invId]
-        );
-      }
-
-      // ponytail: strictly restore only serials that were explicitly registered on this line item
-      if (serial) {
-        await sqlDb.execute(
-          "UPDATE inventory_serials SET status = 'AVAILABLE' WHERE serial_number = $1",
-          [serial]
-        );
-      }
-    }
-
-    await sqlDb.execute("DELETE FROM sale_items WHERE sale_id = $1", [id]);
-    await sqlDb.execute("DELETE FROM sales WHERE id = $1", [id]);
-    return;
-  }
-
-  const items = memoryStore.saleItems.filter((si) => si.saleId === id);
-  for (const item of items) {
-    const inv = memoryStore.inventory.find((i) => i.id === item.inventoryId);
-    if (inv) {
-      inv.quantity += item.quantity;
-    }
-    if (item.serialNumber) {
-      const serial = memoryStore.serials.find(
-        (s) => s.serialNumber.toUpperCase() === item.serialNumber!.toUpperCase()
-      );
-      if (serial) serial.status = "AVAILABLE";
-    }
-  }
-  memoryStore.saleItems = memoryStore.saleItems.filter((si) => si.saleId !== id);
-
-  const idx = memoryStore.sales.findIndex((s) => s.id === id);
-  if (idx !== -1) {
-    memoryStore.sales.splice(idx, 1);
-  }
-}
-
-export async function recordManualReceivable(input: {
-  customerName: string;
-  customerPhone?: string;
-  amount: number;
-  notes?: string;
-  isBadDebt?: boolean;
-}): Promise<string> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-  const now = Math.floor(Date.now() / 1000);
-  const amount = Math.max(0, Math.round(Number(input.amount) || 0));
-  const invoiceNo = await getNextSequenceInvoiceNo("RCV");
-  const isBadDebtInt = input.isBadDebt ? 1 : 0;
-
-  if (isTauri && sqlDb) {
-    await sqlDb.execute(
-      `INSERT INTO sales (invoice_no, customer_name, customer_phone, subtotal, discount, tax, total_amount, paid_amount, payment_status, balance_due, payment_method, notes, is_bad_debt, created_at)
-       VALUES ($1, $2, $3, $4, 0, 0, $5, 0, 'UNPAID', $6, 'CASH', $7, $8, $9)`,
+    const res = await sqlDb.execute(
+      `INSERT INTO bills (bill_number, order_id, shop_id, order_booker_id, bill_date, subtotal, discount_amount, net_amount, paid_amount, payment_status, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11)`,
       [
-        invoiceNo,
-        input.customerName.trim() || "Walk-in Customer",
-        input.customerPhone?.trim() || "",
-        amount,
-        amount,
-        amount,
-        input.notes?.trim() || "Manual receivable record",
-        isBadDebtInt,
+        billNumber,
+        billData.orderId || null,
+        billData.shopId,
+        billData.orderBookerId || null,
+        now,
+        billData.subtotal,
+        billData.discountAmount,
+        billData.netAmount,
+        billData.paidAmount,
+        billData.paymentStatus,
         now,
       ]
     );
-    return invoiceNo;
+
+    const newBillId = Number(res.lastInsertId) || 1;
+
+    for (const it of items) {
+      // Query purchase price for profit snapshot
+      const pRows = await sqlDb.select<any[]>(
+        "SELECT purchase_price, current_stock FROM products WHERE id = $1",
+        [it.productId]
+      );
+      const purchasePrice = Number(pRows?.[0]?.purchase_price || 0);
+      const currentStock = Number(pRows?.[0]?.current_stock || 0);
+      const lineTotal = it.quantity * it.unitSellingPrice;
+      const lineProfit = (it.unitSellingPrice - purchasePrice) * it.quantity;
+
+      // 1. Insert bill_items
+      await sqlDb.execute(
+        `INSERT INTO bill_items (bill_id, product_id, quantity, unit_purchase_price, unit_selling_price, line_total, line_profit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newBillId, it.productId, it.quantity, purchasePrice, it.unitSellingPrice, lineTotal, lineProfit]
+      );
+
+      // 2. Deduct inventory stock if direct POS sale
+      if (billData.deductStock !== false) {
+        const newBalance = currentStock - it.quantity;
+        await sqlDb.execute(
+          `UPDATE products SET current_stock = $1 WHERE id = $2`,
+          [newBalance, it.productId]
+        );
+        await sqlDb.execute(
+          `INSERT INTO inventory_ledger (product_id, change_qty, balance_after, transaction_type, reference_id, reference_type, performed_by, notes, created_at)
+           VALUES ($1, -$2, $3, 'SALE_BILL', $4, 'BILL', 1, $5, $6)`,
+          [it.productId, it.quantity, newBalance, newBillId, `Sale Invoice ${billNumber}`, now]
+        );
+      }
+    }
+
+    // 3. Update shop balance if credit
+    if (unpaidDifference > 0) {
+      await sqlDb.execute(
+        `UPDATE retail_shops SET outstanding_balance = outstanding_balance + $1 WHERE id = $2`,
+        [unpaidDifference, billData.shopId]
+      );
+    }
+
+    // 4. Mark order as billed if linked
+    if (billData.orderId) {
+      await sqlDb.execute(
+        "UPDATE orders SET status = 'BILLED' WHERE id = $1",
+        [billData.orderId]
+      );
+    }
+
+    return newBillId;
   }
 
-  const newId = memoryStore.sales.length > 0 ? Math.max(...memoryStore.sales.map((s) => s.id)) + 1 : 1;
-  memoryStore.sales.unshift({
+  const newId = memoryStore.bills.length > 0 ? Math.max(...memoryStore.bills.map((b) => b.id)) + 1 : 1;
+  const shop = memoryStore.shops.find((s) => s.id === billData.shopId);
+  if (shop && unpaidDifference > 0) {
+    shop.outstandingBalance += unpaidDifference;
+  }
+
+  const newBill: Bill = {
     id: newId,
-    invoiceNo,
-    customerId: null,
-    customerName: input.customerName.trim() || "Walk-in Customer",
-    customerPhone: input.customerPhone?.trim() || "",
-    subtotal: amount,
-    discount: 0,
-    tax: 0,
-    totalAmount: amount,
-    paidAmount: 0,
-    paymentStatus: "UNPAID",
-    balanceDue: amount,
-    paymentMethod: "CASH",
-    notes: input.notes?.trim() || "Manual receivable record",
-    isBadDebt: isBadDebtInt,
-    dueDate: null,
+    billNumber,
+    orderId: billData.orderId || null,
+    shopId: billData.shopId,
+    shop_name: shop?.shopName || "Wholesale Shop",
+    shop_phone: shop?.phone || null,
+    shop_address: shop?.address || null,
+    orderBookerId: billData.orderBookerId || null,
+    booker_name: null,
+    billDate: now,
+    subtotal: billData.subtotal,
+    discountAmount: billData.discountAmount,
+    netAmount: billData.netAmount,
+    paidAmount: billData.paidAmount,
+    paymentStatus: billData.paymentStatus,
+    createdBy: 1,
+    creator_name: "Business Owner",
     createdAt: now,
-  });
+  };
+  memoryStore.bills.unshift(newBill);
 
-  return invoiceNo;
-}
-
-export async function toggleSaleBadDebt(saleId: number, isBadDebt: boolean): Promise<void> {
-  const isTauri = isTauriEnvironment();
-  const sqlDb = await getSqlDb();
-  const val = isBadDebt ? 1 : 0;
-
-  if (isTauri && sqlDb) {
-    await sqlDb.execute(
-      "UPDATE sales SET is_bad_debt = CASE WHEN balance_due > 0 THEN $1 ELSE 0 END WHERE id = $2",
-      [val, saleId]
-    );
-    return;
+  for (const it of items) {
+    const prod = memoryStore.products.find((p) => p.id === it.productId);
+    const cost = prod?.purchasePrice || 0;
+    if (prod && billData.deductStock !== false) {
+      prod.currentStock -= it.quantity;
+    }
+    memoryStore.billItems.push({
+      id: memoryStore.billItems.length + 1,
+      billId: newId,
+      productId: it.productId,
+      product_name: prod?.name || "Product",
+      sku: prod?.sku || "SKU",
+      quantity: it.quantity,
+      unitSellingPrice: it.unitSellingPrice,
+      unitPurchasePrice: cost,
+      lineTotal: it.quantity * it.unitSellingPrice,
+      lineProfit: (it.unitSellingPrice - cost) * it.quantity,
+    });
   }
 
-  const s = memoryStore.sales.find((sale) => sale.id === saleId);
-  if (s) {
-    s.isBadDebt = s.balanceDue > 0 ? val : 0;
-  }
+  return newId;
 }
-
-export const deleteSaleTransaction = deleteSale;

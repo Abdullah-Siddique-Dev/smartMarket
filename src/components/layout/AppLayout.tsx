@@ -6,12 +6,11 @@ import { useSidebar } from "../../context/SidebarContext";
 interface AppLayoutProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
-  inventoryCount: number;
-  categoriesCount?: number;
+  productsCount: number;
   lowStockCount?: number;
-  activeRepairsCount?: number;
-  customersCount?: number;
-  payablesCount?: number;
+  pendingOrdersCount?: number;
+  shopsCount?: number;
+  vendorsCount?: number;
   children: React.ReactNode;
   onQuickSale?: () => void;
   onLockSession?: () => void;
@@ -20,12 +19,11 @@ interface AppLayoutProps {
 export const AppLayout: React.FC<AppLayoutProps> = ({
   activeTab,
   onSelectTab,
-  inventoryCount,
-  categoriesCount,
+  productsCount,
   lowStockCount,
-  activeRepairsCount,
-  customersCount,
-  payablesCount,
+  pendingOrdersCount,
+  shopsCount,
+  vendorsCount,
   children,
   onQuickSale,
   onLockSession,
@@ -37,12 +35,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       <AppSidebar
         activeTab={activeTab}
         onSelectTab={onSelectTab}
-        inventoryCount={inventoryCount}
-        categoriesCount={categoriesCount}
+        productsCount={productsCount}
         lowStockCount={lowStockCount}
-        activeRepairsCount={activeRepairsCount}
-        customersCount={customersCount}
-        payablesCount={payablesCount}
+        pendingOrdersCount={pendingOrdersCount}
+        shopsCount={shopsCount}
+        vendorsCount={vendorsCount}
       />
 
       <div

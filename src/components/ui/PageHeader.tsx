@@ -4,6 +4,7 @@ import { LucideIcon } from "lucide-react";
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
+  description?: string;
   icon?: LucideIcon;
   iconColor?: string;
   children?: React.ReactNode;
@@ -12,10 +13,12 @@ interface PageHeaderProps {
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
   subtitle,
+  description,
   icon: Icon,
   iconColor = "text-brand-500",
   children,
 }) => {
+  const subText = subtitle || description;
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
@@ -28,9 +31,9 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
             {title}
           </h1>
-          {subtitle && (
+          {subText && (
             <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">
-              {subtitle}
+              {subText}
             </p>
           )}
         </div>

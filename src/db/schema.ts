@@ -1,651 +1,394 @@
-import { sqliteTable, integer, text } from "drizzle-orm/sqlite-core";
+import { sqliteTable, integer, text, real } from "drizzle-orm/sqlite-core";
 
-export const DefaultCategories = [
-  { name: "Routers", description: "Wi-Fi routers, broadband & gigabit wireless routers, mesh systems" },
-  { name: "Network Switches", description: "5/8/16/24-port Ethernet gigabit & PoE network switches" },
-  { name: "Gaming Accessories", description: "RGB keyboards, gaming headsets, mice, oversized desk pads" },
-  { name: "Speakers & Audio", description: "2.1 desktop speakers, subwoofers, soundbars, multimedia audio" },
-  { name: "Display Cables", description: "HDMI 2.0/2.1, DisplayPort 1.4/2.0, DVI, Type-C to DP/HDMI cables" },
-  { name: "Branded Mice", description: "New & boxed branded mice (Logitech, Razer, Dell, HP, Lenovo)" },
-  { name: "Standard Mice", description: "Standard optical office & desktop mice" },
-  { name: "USB & Printer Cables", description: "USB Type-A to Type-B printer cables, USB-A to USB-A data cables" },
-  { name: "USB Extensions", description: "USB 2.0 / 3.0 extension cables, powered USB hubs" },
-  { name: "Audio Cables (Stereo)", description: "3.5mm Aux male-to-male stereo audio patch cables" },
-  { name: "Audio/Video Cables (AV/RCA)", description: "3.5mm Aux to 2/3-RCA composite video & audio cables" },
-  { name: "Internal Power Cables", description: "SATA to 6-pin / 8-pin PCI-e GPU power adapter cables" },
-  { name: "SATA Splitter Cables", description: "SATA power 1-to-2 Y-splitter power cables" },
-  { name: "Mobile Data Cables", description: "USB Type-C, Lightning, and Micro-USB fast charging data cables" },
-  // Core hardware components
-  { name: "LAPTOP", description: "Laptops, notebooks, ultrabooks" },
-  { name: "DESKTOP", description: "Desktop PCs, all-in-one workstations" },
-  { name: "CPU", description: "Processors (Intel & AMD)" },
-  { name: "GPU", description: "Graphics cards (NVIDIA, AMD Radeon)" },
-  { name: "RAM", description: "DDR4 / DDR5 Desktop & Laptop memory modules" },
-  { name: "STORAGE", description: "NVMe SSDs, SATA SSDs, Internal Hard Drives" },
-  { name: "MOTHERBOARD", description: "Desktop & Server motherboards" },
-  { name: "PSU", description: "Power supply units (ATX / SFX modular & non-modular)" },
-  { name: "MONITOR", description: "Monitors, gaming displays, business screens" },
-  { name: "KEYBOARD", description: "Mechanical & membrane keyboards" },
-  { name: "MOUSE", description: "Computer mice and pointing devices" },
-  { name: "ACCESSORY", description: "General PC accessories, adapters, thermal paste" },
+// ==========================================
+// Smart Market OS - Wholesale Data Models & Enums
+// ==========================================
+
+export const USER_ROLES = {
+  OWNER: "OWNER",
+  OPERATOR: "OPERATOR",
+} as const;
+export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
+
+export const ORDER_STATUSES = {
+  PENDING: "PENDING",
+  DISPATCHED: "DISPATCHED",
+  BILLED: "BILLED",
+  CANCELLED: "CANCELLED",
+} as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[keyof typeof ORDER_STATUSES];
+
+export const PAYMENT_STATUSES = {
+  PAID: "PAID",
+  PARTIAL: "PARTIAL",
+  CREDIT: "CREDIT",
+} as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[keyof typeof PAYMENT_STATUSES];
+
+export const INVENTORY_TRANSACTION_TYPES = {
+  IMPORT: "IMPORT",
+  SALE_BILL: "SALE_BILL",
+  BOOKER_DISPATCH: "BOOKER_DISPATCH",
+  BOOKER_RETURN: "BOOKER_RETURN",
+  DAMAGE_ADJUSTMENT: "DAMAGE_ADJUSTMENT",
+} as const;
+export type InventoryTransactionType =
+  (typeof INVENTORY_TRANSACTION_TYPES)[keyof typeof INVENTORY_TRANSACTION_TYPES];
+
+export const ORDER_SOURCES = {
+  MANUAL_WHATSAPP: "MANUAL_WHATSAPP",
+  MANUAL_IN_PERSON: "MANUAL_IN_PERSON",
+  DIRECT_PHONE: "DIRECT_PHONE",
+  DIRECT_WALKIN: "DIRECT_WALKIN",
+} as const;
+export type OrderSource = (typeof ORDER_SOURCES)[keyof typeof ORDER_SOURCES];
+
+export const EXPENSE_CATEGORIES = [
+  "FUEL_TRANSPORT",
+  "ELECTRICITY",
+  "RENT",
+  "SALARIES",
+  "RAW_MATERIALS",
+  "REPAIRS_MAINTENANCE",
+  "OFFICE_SUPPLIES",
+  "PHONE_INTERNET",
+  "BANK_CHARGES",
+  "MISCELLANEOUS",
 ] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
-export const ItemTitles: readonly string[] = DefaultCategories.map((c) => c.name);
+export const PRODUCT_UNITS = ["BOX", "CARTON", "PACK", "DOZEN", "KG", "PCS", "BAG"] as const;
+export type ProductUnit = (typeof PRODUCT_UNITS)[number];
 
-export type ItemTitle = string;
+// ==========================================
+// Drizzle Schema Definitions
+// ==========================================
 
-// Categories Table
-export const categories = sqliteTable("categories", {
+// 1. System Users
+export const systemUsers = sqliteTable("system_users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull().unique(),
-  description: text("description").default(""),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  fullName: text("full_name").notNull(),
+  role: text("role").notNull().default("OWNER"),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: text("created_at").notNull(),
 });
 
-export type CategoryRecord = typeof categories.$inferSelect;
-export type NewCategoryRecord = typeof categories.$inferInsert;
+export type User = typeof systemUsers.$inferSelect;
+export type NewUser = typeof systemUsers.$inferInsert;
 
-export const SerialStatuses = ["AVAILABLE", "SOLD", "DEFECTIVE"] as const;
-export type SerialStatus = (typeof SerialStatuses)[number];
-
-export const PaymentMethods = ["CASH", "CARD", "SPLIT"] as const;
-export type PaymentMethod = (typeof PaymentMethods)[number];
-
-export const PaymentStatuses = ["PAID", "PARTIAL", "UNPAID"] as const;
-export type PaymentStatus = (typeof PaymentStatuses)[number];
-
-export const RepairStatuses = [
-  "RECEIVED",
-  "IN_PROGRESS",
-  "WAITING_PARTS",
-  "READY",
-  "DELIVERED",
-] as const;
-export type RepairStatus = (typeof RepairStatuses)[number];
-
-// 1. Customers Table
-export const customers = sqliteTable("customers", {
+// 2. Products Master Catalog
+export const products = sqliteTable("products", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull(),
-  phone: text("phone").notNull().unique(),
-  email: text("email").default(""),
-  address: text("address").default(""),
-  notes: text("notes").default(""),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type Customer = typeof customers.$inferSelect;
-export type NewCustomer = typeof customers.$inferInsert;
-
-// 2. Inventory Table (Integer Currency)
-export const inventory = sqliteTable("inventory", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  title: text("title").notNull(),
-  name: text("name").notNull(),
   sku: text("sku").notNull().unique(),
-  quantity: integer("quantity").notNull().default(0),
-  price: integer("price").notNull().default(0),
-  costPrice: integer("cost_price").notNull().default(0),
-  isSerialized: integer("is_serialized").notNull().default(0),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
+  name: text("name").notNull(),
+  unit: text("unit").notNull().default("BOX"),
+  purchasePrice: real("purchase_price").notNull().default(0),
+  sellingPrice: real("selling_price").notNull().default(0),
+  currentStock: integer("current_stock").notNull().default(0),
+  minStockAlert: integer("min_stock_alert").notNull().default(10),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
-export type InventoryItem = typeof inventory.$inferSelect;
-export type NewInventoryItem = typeof inventory.$inferInsert;
+export type Product = typeof products.$inferSelect;
+export type NewProduct = typeof products.$inferInsert;
 
-// 3. Inventory Serials Table
-export const inventorySerials = sqliteTable("inventory_serials", {
+// 3. Product Imports (Inward Stock Receiving)
+export const productImports = sqliteTable("product_imports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  inventoryId: integer("inventory_id")
-    .notNull()
-    .references(() => inventory.id, { onDelete: "cascade" }),
-  serialNumber: text("serial_number").notNull(),
-  status: text("status", { enum: SerialStatuses }).notNull().default("AVAILABLE"),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
+  importNumber: text("import_number").notNull().unique(),
+  productId: integer("product_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitCost: real("unit_cost").notNull(),
+  supplierInfo: text("supplier_info"),
+  vendorId: integer("vendor_id"),
+  importDate: text("import_date").notNull(),
+  receivedBy: integer("received_by").notNull(),
+  createdAt: text("created_at").notNull(),
 });
 
-export type InventorySerial = typeof inventorySerials.$inferSelect;
-export type NewInventorySerial = typeof inventorySerials.$inferInsert;
+export type ProductImport = typeof productImports.$inferSelect & {
+  product_name?: string;
+  sku?: string;
+  receiver_name?: string;
+};
+export type NewProductImport = typeof productImports.$inferInsert;
 
-// 4. Sales Invoices Table (Integer Currency)
-export const sales = sqliteTable("sales", {
+// 4. Retail Shops (Customers)
+export const retailShops = sqliteTable("retail_shops", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  invoiceNo: text("invoice_no").notNull().unique(),
-  customerId: integer("customer_id").references(() => customers.id),
-  customerName: text("customer_name").notNull().default("Walk-in Customer"),
-  customerPhone: text("customer_phone").notNull().default(""),
-  subtotal: integer("subtotal").notNull().default(0),
-  discount: integer("discount").notNull().default(0),
-  tax: integer("tax").notNull().default(0),
-  totalAmount: integer("total_amount").notNull().default(0),
-  paidAmount: integer("paid_amount").notNull().default(0),
-  paymentStatus: text("payment_status", { enum: PaymentStatuses }).notNull().default("PAID"),
-  balanceDue: integer("balance_due").notNull().default(0),
-  paymentMethod: text("payment_method", { enum: PaymentMethods }).notNull().default("CASH"),
-  notes: text("notes").notNull().default(""),
-  isBadDebt: integer("is_bad_debt").notNull().default(0),
-  dueDate: integer("due_date"),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
+  shopName: text("shop_name").notNull(),
+  ownerName: text("owner_name"),
+  phone: text("phone"),
+  address: text("address"),
+  outstandingBalance: real("outstanding_balance").notNull().default(0),
+  creditLimit: real("credit_limit").notNull().default(0),
+  createdAt: text("created_at").notNull(),
 });
 
-export type SaleRecord = typeof sales.$inferSelect;
-export type NewSaleRecord = typeof sales.$inferInsert;
+export type RetailShop = typeof retailShops.$inferSelect;
+export type NewRetailShop = typeof retailShops.$inferInsert;
 
-// 5. Sale Line Items Table (Integer Currency)
-export const saleItems = sqliteTable("sale_items", {
+// 5. Order Bookers (Field Representatives)
+export const orderBookers = sqliteTable("order_bookers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  saleId: integer("sale_id")
-    .notNull()
-    .references(() => sales.id, { onDelete: "cascade" }),
-  inventoryId: integer("inventory_id")
-    .notNull()
-    .references(() => inventory.id),
-  itemName: text("item_name").notNull(),
-  serialNumber: text("serial_number"),
-  quantity: integer("quantity").notNull().default(1),
-  unitPrice: integer("unit_price").notNull().default(0),
-  costPrice: integer("cost_price").notNull().default(0),
-  totalPrice: integer("total_price").notNull().default(0),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  territory: text("territory"),
+  commissionRate: real("commission_rate").notNull().default(0),
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: text("created_at").notNull(),
 });
 
-export type SaleLineItem = typeof saleItems.$inferSelect;
-export type NewSaleLineItem = typeof saleItems.$inferInsert;
+export type OrderBooker = typeof orderBookers.$inferSelect;
+export type NewOrderBooker = typeof orderBookers.$inferInsert;
 
-// 6. Repairs & Service Tickets Table (Integer Currency)
-export const repairs = sqliteTable("repairs", {
+// 6. Orders Header
+export const orders = sqliteTable("orders", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  ticketNo: text("ticket_no").notNull().unique(),
-  customerId: integer("customer_id").references(() => customers.id),
-  customerName: text("customer_name").notNull(),
-  customerPhone: text("customer_phone").notNull(),
-  device: text("device").notNull(),
-  reportedIssue: text("reported_issue").notNull(),
-  partsUsed: text("parts_used").default("[]"),
-  laborCost: integer("labor_cost").notNull().default(0),
-  estimatedCost: integer("estimated_cost").notNull().default(0),
-  finalCost: integer("final_cost").notNull().default(0),
-  status: text("status", { enum: RepairStatuses }).notNull().default("RECEIVED"),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
+  orderNumber: text("order_number").notNull().unique(),
+  shopId: integer("shop_id").notNull(),
+  orderBookerId: integer("order_booker_id"),
+  orderSource: text("order_source").notNull().default("MANUAL_WHATSAPP"),
+  orderDate: text("order_date").notNull(),
+  status: text("status").notNull().default("PENDING"),
+  totalAmount: real("total_amount").notNull().default(0),
+  notes: text("notes"),
+  createdBy: integer("created_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
 });
 
-export type RepairTicketRecord = typeof repairs.$inferSelect;
-export type NewRepairTicketRecord = typeof repairs.$inferInsert;
+export type Order = typeof orders.$inferSelect & {
+  shop_name?: string;
+  booker_name?: string | null;
+  creator_name?: string;
+  items?: OrderItem[];
+};
+export type NewOrder = typeof orders.$inferInsert;
 
-// 7. Adjustments / PC Swap & Trade-In Table (Integer Currency)
-export const adjustments = sqliteTable("adjustments", {
+// 7. Order Items
+export const orderItems = sqliteTable("order_items", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  adjustmentNo: text("adjustment_no").notNull().unique(),
-  customerId: integer("customer_id").references(() => customers.id),
-  customerName: text("customer_name").notNull(),
-  customerPhone: text("customer_phone").notNull(),
-  itemTakenInventoryId: integer("item_taken_inventory_id").references(() => inventory.id),
-  itemTakenName: text("item_taken_name").notNull(),
-  itemTakenValue: integer("item_taken_value").notNull().default(0),
-  itemGivenInventoryId: integer("item_given_inventory_id").references(() => inventory.id),
-  itemGivenName: text("item_given_name").notNull(),
-  itemGivenPrice: integer("item_given_price").notNull().default(0),
-  netDifference: integer("net_difference").notNull().default(0),
-  paidAmount: integer("paid_amount").notNull().default(0),
-  balanceDue: integer("balance_due").notNull().default(0),
-  paymentStatus: text("payment_status", { enum: PaymentStatuses }).notNull().default("PAID"),
-  notes: text("notes").default(""),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
+  orderId: integer("order_id").notNull(),
+  productId: integer("product_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: real("unit_price").notNull(),
+  lineTotal: real("line_total").notNull(),
 });
 
-export type AdjustmentRecord = typeof adjustments.$inferSelect;
-export type NewAdjustmentRecord = typeof adjustments.$inferInsert;
+export type OrderItem = typeof orderItems.$inferSelect & {
+  product_name?: string;
+  sku?: string;
+};
+export type NewOrderItem = typeof orderItems.$inferInsert;
 
-// 8. Settings Key-Value Store
+// 8. Dispatch Slips (Gate Pass)
+export const dispatchSlips = sqliteTable("dispatch_slips", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  slipNumber: text("slip_number").notNull().unique(),
+  orderBookerId: integer("order_booker_id").notNull(),
+  dispatchDate: text("dispatch_date").notNull(),
+  status: text("status").notNull().default("DISPATCHED"),
+  notes: text("notes"),
+  createdBy: integer("created_by").notNull().default(1),
+});
+
+export type DispatchSlip = typeof dispatchSlips.$inferSelect & {
+  booker_name?: string;
+  creator_name?: string;
+  items?: DispatchSlipItem[];
+};
+export type NewDispatchSlip = typeof dispatchSlips.$inferInsert;
+
+// 9. Dispatch Slip Items
+export const dispatchSlipItems = sqliteTable("dispatch_slip_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  dispatchSlipId: integer("dispatch_slip_id").notNull(),
+  productId: integer("product_id").notNull(),
+  dispatchedQty: integer("dispatched_qty").notNull(),
+  returnedQty: integer("returned_qty").notNull().default(0),
+  billedQty: integer("billed_qty").notNull().default(0),
+});
+
+export type DispatchSlipItem = typeof dispatchSlipItems.$inferSelect & {
+  product_name?: string;
+  sku?: string;
+};
+export type NewDispatchSlipItem = typeof dispatchSlipItems.$inferInsert;
+
+// 10. Bills / Final Invoices
+export const bills = sqliteTable("bills", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  billNumber: text("bill_number").notNull().unique(),
+  orderId: integer("order_id"),
+  shopId: integer("shop_id").notNull(),
+  orderBookerId: integer("order_booker_id"),
+  billDate: text("bill_date").notNull(),
+  subtotal: real("subtotal").notNull().default(0),
+  discountAmount: real("discount_amount").notNull().default(0),
+  netAmount: real("net_amount").notNull().default(0),
+  paidAmount: real("paid_amount").notNull().default(0),
+  paymentStatus: text("payment_status").notNull().default("PAID"),
+  createdBy: integer("created_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+});
+
+export type Bill = typeof bills.$inferSelect & {
+  shop_name?: string;
+  shop_phone?: string | null;
+  shop_address?: string | null;
+  booker_name?: string | null;
+  creator_name?: string;
+  items?: BillItem[];
+};
+export type NewBill = typeof bills.$inferInsert;
+
+// 11. Bill Items
+export const billItems = sqliteTable("bill_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  billId: integer("bill_id").notNull(),
+  productId: integer("product_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPurchasePrice: real("unit_purchase_price").notNull().default(0),
+  unitSellingPrice: real("unit_selling_price").notNull().default(0),
+  lineTotal: real("line_total").notNull().default(0),
+  lineProfit: real("line_profit").notNull().default(0),
+});
+
+export type BillItem = typeof billItems.$inferSelect & {
+  product_name?: string;
+  sku?: string;
+};
+export type NewBillItem = typeof billItems.$inferInsert;
+
+// 12. Inventory Ledger (Audit Trail)
+export const inventoryLedger = sqliteTable("inventory_ledger", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  productId: integer("product_id").notNull(),
+  changeQty: integer("change_qty").notNull(),
+  balanceAfter: integer("balance_after").notNull(),
+  transactionType: text("transaction_type").notNull(),
+  referenceId: integer("reference_id").notNull(),
+  referenceType: text("reference_type").notNull(),
+  performedBy: integer("performed_by").notNull().default(1),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+export type InventoryLedgerEntry = typeof inventoryLedger.$inferSelect & {
+  product_name?: string;
+  sku?: string;
+  unit?: string;
+  performer_name?: string;
+};
+export type NewInventoryLedgerEntry = typeof inventoryLedger.$inferInsert;
+
+// 13. Order Booker Daily Reconciliations
+export const bookerReconciliations = sqliteTable("booker_reconciliations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reconciliationDate: text("reconciliation_date").notNull(),
+  orderBookerId: integer("order_booker_id").notNull(),
+  ordersCountTotal: integer("orders_count_total").notNull().default(0),
+  ordersCountCollected: integer("orders_count_collected").notNull().default(0),
+  ordersCountPending: integer("orders_count_pending").notNull().default(0),
+  totalCashSubmitted: real("total_cash_submitted").notNull().default(0),
+  totalCreditIssued: real("total_credit_issued").notNull().default(0),
+  shortageAmount: real("shortage_amount").notNull().default(0),
+  verifiedBy: integer("verified_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+});
+
+export type BookerReconciliation = typeof bookerReconciliations.$inferSelect;
+
+// 14. Shop Payments (Khata Settlement)
+export const shopPayments = sqliteTable("shop_payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  shopId: integer("shop_id").notNull(),
+  amount: real("amount").notNull(),
+  paymentDate: text("payment_date").notNull(),
+  paymentMethod: text("payment_method").notNull().default("CASH"),
+  notes: text("notes"),
+  receivedBy: integer("received_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+});
+
+export type ShopPayment = typeof shopPayments.$inferSelect & {
+  shop_name?: string;
+};
+export type NewShopPayment = typeof shopPayments.$inferInsert;
+
+// 15. Business Expenses
+export const expenses = sqliteTable("expenses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  expenseDate: text("expense_date").notNull(),
+  category: text("category").notNull(),
+  amount: real("amount").notNull(),
+  description: text("description").notNull(),
+  paymentMethod: text("payment_method").notNull().default("CASH"),
+  createdBy: integer("created_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+});
+
+export type Expense = typeof expenses.$inferSelect & {
+  creator_name?: string;
+};
+export type NewExpense = typeof expenses.$inferInsert;
+
+// 16. Vendors (Suppliers)
+export const vendors = sqliteTable("vendors", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  contactPerson: text("contact_person"),
+  phone: text("phone"),
+  email: text("email"),
+  address: text("address"),
+  city: text("city"),
+  notes: text("notes"),
+  totalPurchases: real("total_purchases").notNull().default(0),
+  totalPaid: real("total_paid").notNull().default(0),
+  isActive: integer("is_active").notNull().default(1),
+  createdBy: integer("created_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export type Vendor = typeof vendors.$inferSelect & {
+  payable_balance?: number;
+  creator_name?: string;
+};
+export type NewVendor = typeof vendors.$inferInsert;
+
+// 17. Vendor Payments
+export const vendorPayments = sqliteTable("vendor_payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  vendorId: integer("vendor_id").notNull(),
+  amount: real("amount").notNull(),
+  paymentDate: text("payment_date").notNull(),
+  paymentMethod: text("payment_method").notNull().default("CASH"),
+  reference: text("reference"),
+  notes: text("notes"),
+  createdBy: integer("created_by").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+});
+
+export type VendorPayment = typeof vendorPayments.$inferSelect & {
+  vendor_name?: string;
+};
+export type NewVendorPayment = typeof vendorPayments.$inferInsert;
+
+// 18. Settings
 export const settings = sqliteTable("settings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   key: text("key").notNull().unique(),
   value: text("value").notNull(),
 });
 
-export type SettingRecord = typeof settings.$inferSelect;
-export type NewSettingRecord = typeof settings.$inferInsert;
+export type Setting = typeof settings.$inferSelect;
 
-// 9. Brand & Document Types
-export const BrandTypes = [
-  "tasnim_computers",
-  "farhan_computers",
-  "farhan_enterprises",
-] as const;
-export type BrandType = (typeof BrandTypes)[number];
-
-export const DocTypes = ["invoice", "quotation", "bill", "challan"] as const;
-export type DocType = (typeof DocTypes)[number];
-
-export interface DocumentLineItem {
-  sn: number;
-  description: string;
-  qty: number;
-  unitPrice: number;
-  totalAmount: number;
-}
-
-// 10. Generated Documents Table
-export const documents = sqliteTable("documents", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  brand: text("brand", { enum: BrandTypes }).notNull().default("tasnim_computers"),
-  docType: text("doc_type", { enum: DocTypes }).notNull().default("invoice"),
-  refNo: text("ref_no").notNull().unique(),
-  date: text("date").notNull(),
-  customerId: integer("customer_id").references(() => customers.id),
-  customerName: text("customer_name").notNull(),
-  customerAddress: text("customer_address").notNull().default(""),
-  customerPhone: text("customer_phone").notNull().default(""),
-  itemsJson: text("items_json").notNull().default("[]"),
-  subtotal: integer("subtotal").notNull().default(0),
-  discount: integer("discount").notNull().default(0),
-  tax: integer("tax").notNull().default(0),
-  totalAmount: integer("total_amount").notNull().default(0),
-  paymentMode: text("payment_mode").notNull().default("CASH"),
-  warrantyTerms: text("warranty_terms").notNull().default("ONE WEEK CHECK WARRANTY"),
-  notes: text("notes").notNull().default(""),
-  schemaVersion: integer("schema_version").notNull().default(1),
-  createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
-  updatedAt: integer("updated_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type DocumentRecord = typeof documents.$inferSelect;
-export type NewDocumentRecord = typeof documents.$inferInsert;
-
-// --- Domain Interfaces ---
-
-export interface CreateDocumentInput {
-  brand: BrandType;
-  docType?: DocType;
-  refNo: string;
-  date: string;
-  customerId?: number;
-  customerName: string;
-  customerAddress?: string;
-  customerPhone?: string;
-  items: DocumentLineItem[];
-  subtotal: number;
-  discount?: number;
-  tax?: number;
-  totalAmount: number;
-  paymentMode?: string;
-  warrantyTerms?: string;
-  notes?: string;
-}
-
-export interface RepairPartUsed {
-  name: string;
-  cost: number;
-  isHardware: boolean;
-  inventoryId?: number;
-  quantity?: number;
-}
-
-export interface CreateSaleInput {
-  customerId?: number;
-  customerName?: string;
-  customerPhone?: string;
-  customerAddress?: string;
-  items: {
-    inventoryId: number;
-    itemName: string;
-    serialNumber?: string;
-    quantity: number;
-    unitPrice: number;
-    costPrice?: number;
-  }[];
-  subtotal: number;
-  discount?: number;
-  tax?: number;
-  totalAmount: number;
-  paidAmount?: number;
-  paymentMethod: PaymentMethod;
-  notes?: string;
-}
-
-export interface AddRepairInput {
-  customerId?: number;
-  customerName: string;
-  customerPhone: string;
-  device: string;
-  reportedIssue: string;
-  partsUsed?: RepairPartUsed[];
-  laborCost?: number;
-  estimatedCost?: number;
-  status?: RepairStatus;
-}
-
-export interface CreateAdjustmentInput {
-  customerId?: number;
-  customerName: string;
-  customerPhone: string;
-  itemTakenTitle?: ItemTitle;
-  itemTakenName: string;
-  itemTakenSku?: string;
-  itemTakenValue: number;
-  itemTakenSellPrice?: number;
-  itemTakenSerial?: string;
-  itemTakenCondition?: string;
-  itemGivenInventoryId?: number;
-  itemGivenName: string;
-  itemGivenPrice: number;
-  serialNumber?: string;
-  netDifference: number;
-  paidAmount?: number;
-  balanceDue?: number;
-  paymentStatus?: PaymentStatus;
-  notes?: string;
-}
-
-// 11. Payables - Suppliers / Parties Master Table
-export const payableParties = sqliteTable("payable_parties", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull(),
-  phone: text("phone").default(""),
-  address: text("address").default(""),
-  totalDebit: integer("total_debit").notNull().default(0),
-  totalCredit: integer("total_credit").notNull().default(0),
-  currentBalance: integer("current_balance").notNull().default(0),
-  notes: text("notes").default(""),
-  createdAt: integer("created_at")
-    .notNull()
-    .$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type PayableParty = typeof payableParties.$inferSelect;
-export type NewPayableParty = typeof payableParties.$inferInsert;
-
-// 12. Payables - 2-Level Transaction Ledger Table
-export const PayableTxTypes = [
-  "PURCHASE",
-  "PAYMENT",
-  "RETURN",
-  "ADJUSTMENT",
-] as const;
-export type PayableTxType = (typeof PayableTxTypes)[number];
-
-export const payableLedger = sqliteTable("payable_ledger", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  partyId: integer("party_id")
-    .notNull()
-    .references(() => payableParties.id, { onDelete: "cascade" }),
-  txDate: integer("tx_date").notNull(),
-  txType: text("tx_type", { enum: PayableTxTypes }).notNull().default("PURCHASE"),
-  refNo: text("ref_no").default(""),
-  description: text("description").notNull().default(""),
-  debit: integer("debit").notNull().default(0),
-  credit: integer("credit").notNull().default(0),
-  balance: integer("balance").notNull().default(0),
-  createdAt: integer("created_at")
-    .notNull()
-    .$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type PayableLedgerEntry = typeof payableLedger.$inferSelect;
-export type NewPayableLedgerEntry = typeof payableLedger.$inferInsert;
-
-export interface CreatePayablePartyInput {
-  name: string;
-  phone?: string;
-  address?: string;
-  notes?: string;
-  openingBalance?: number;
-}
-
-export interface CreatePayableLedgerInput {
-  partyId: number;
-  txDate: number;
-  txType: PayableTxType;
-  refNo?: string;
-  description: string;
-  debit?: number;
-  credit?: number;
-}
-
-// 13. Purchases & Inward Stock Bills Table
-export const PurchaseStatuses = ["RECEIVED", "ORDERED"] as const;
-export type PurchaseStatus = (typeof PurchaseStatuses)[number];
-
-export const purchases = sqliteTable("purchases", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  purchaseNo: text("purchase_no").notNull().unique(),
-  partyId: integer("party_id")
-    .notNull()
-    .references(() => payableParties.id),
-  partyName: text("party_name").notNull(),
-  refNo: text("ref_no").default(""),
-  purchaseDate: integer("purchase_date").notNull(),
-  totalAmount: integer("total_amount").notNull().default(0),
-  paidAmount: integer("paid_amount").notNull().default(0),
-  balanceDue: integer("balance_due").notNull().default(0),
-  status: text("status", { enum: PurchaseStatuses }).notNull().default("RECEIVED"),
-  notes: text("notes").default(""),
-  createdAt: integer("created_at")
-    .notNull()
-    .$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type PurchaseRecord = typeof purchases.$inferSelect;
-export type NewPurchaseRecord = typeof purchases.$inferInsert;
-
-// 14. Purchase Line Items Table
-export const purchaseItems = sqliteTable("purchase_items", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  purchaseId: integer("purchase_id")
-    .notNull()
-    .references(() => purchases.id, { onDelete: "cascade" }),
-  inventoryId: integer("inventory_id").references(() => inventory.id),
-  title: text("title").notNull(),
-  itemName: text("item_name").notNull(),
-  sku: text("sku").notNull(),
-  quantity: integer("quantity").notNull().default(1),
-  costPrice: integer("cost_price").notNull().default(0),
-  sellPrice: integer("sell_price").notNull().default(0),
-  totalCost: integer("total_cost").notNull().default(0),
-});
-
-export type PurchaseItemRecord = typeof purchaseItems.$inferSelect;
-export type NewPurchaseItemRecord = typeof purchaseItems.$inferInsert;
-
-export interface PurchaseItemInput {
-  inventoryId?: number | null;
-  title: ItemTitle;
-  itemName: string;
-  sku?: string;
-  quantity: number;
-  costPrice: number;
-  sellPrice?: number;
-}
-
-export interface CreatePurchaseInput {
-  partyId: number;
-  partyName?: string;
-  refNo?: string;
-  purchaseDate?: number;
-  status?: PurchaseStatus;
-  paidAmount?: number;
-  notes?: string;
-  items: PurchaseItemInput[];
-}
-
-// 15. Expenses Table
-export const ExpenseCategories = [
-  "RENT",
-  "UTILITIES",
-  "SALARY",
-  "SECURITY_GUARD",
-  "INTERNET",
-  "TEA_FOOD",
-  "MAINTENANCE",
-  "MARKETING",
-  "MISC",
-] as const;
-export type ExpenseCategory = (typeof ExpenseCategories)[number];
-
-export const expenses = sqliteTable("expenses", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  year: integer("year").notNull(),
-  month: integer("month").notNull(),
-  category: text("category", { enum: ExpenseCategories }).notNull().default("MISC"),
-  title: text("title").notNull(),
-  amount: integer("amount").notNull().default(0),
-  expenseDate: integer("expense_date").notNull(),
-  paymentMethod: text("payment_method").notNull().default("CASH"),
-  notes: text("notes").default(""),
-  createdAt: integer("created_at")
-    .notNull()
-    .$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type Expense = typeof expenses.$inferSelect;
-export type NewExpense = typeof expenses.$inferInsert;
-
-// 16. Monthly Reports Archive Table
-export const ReportStatuses = ["OPEN", "CLOSED"] as const;
-export type ReportStatus = (typeof ReportStatuses)[number];
-
-export const monthlyReports = sqliteTable("monthly_reports", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  year: integer("year").notNull(),
-  month: integer("month").notNull(),
-  monthLabel: text("month_label").notNull(),
-  grossSales: integer("gross_sales").notNull().default(0),
-  grossProfit: integer("gross_profit").notNull().default(0),
-  totalExpenses: integer("total_expenses").notNull().default(0),
-  netProfit: integer("net_profit").notNull().default(0),
-  collectedCash: integer("collected_cash").notNull().default(0),
-  receivables: integer("receivables").notNull().default(0),
-  payables: integer("payables").notNull().default(0),
-  repairRevenue: integer("repair_revenue").notNull().default(0),
-  swapMargin: integer("swap_margin").notNull().default(0),
-  dailyDataJson: text("daily_data_json").notNull().default("[]"),
-  expenseDataJson: text("expense_data_json").notNull().default("[]"),
-  status: text("status", { enum: ReportStatuses }).notNull().default("CLOSED"),
-  createdAt: integer("created_at")
-    .notNull()
-    .$defaultFn(() => Math.floor(Date.now() / 1000)),
-  updatedAt: integer("updated_at")
-    .notNull()
-    .$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
-
-export type MonthlyReportRecord = typeof monthlyReports.$inferSelect;
-export type NewMonthlyReportRecord = typeof monthlyReports.$inferInsert;
-
-// --- Monthly Reports & Expense Domain Interfaces ---
-
-export interface DailyReportExpenseItem {
-  id: number;
-  title: string;
-  category: string;
-  amount: number;
-  paymentMethod?: string;
-  notes?: string | null;
-}
-
-export interface DailyReportPayableItem {
-  id: number;
-  purchaseNo?: string;
-  partyName?: string;
-  totalAmount: number;
-  paidAmount: number;
-  balanceDue: number;
-  type?: "PURCHASE" | "PAYMENT";
-  description?: string;
-}
-
-export interface DailyReportSaleItem {
-  id: number;
-  invoiceNo: string;
-  customerName: string;
-  totalAmount: number;
-  paidAmount: number;
-  balanceDue: number;
-  paymentMethod: string;
-  itemsSummary: string;
-}
-
-export interface DailyReportAdjustmentItem {
-  id: number;
-  adjustmentNo: string;
-  customerName: string;
-  itemTakenName: string;
-  itemTakenValue: number;
-  itemGivenName: string;
-  itemGivenPrice: number;
-  netDifference: number;
-  paymentStatus: string;
-}
-
-export interface DailyReportRepairItem {
-  id: number;
-  ticketNo: string;
-  customerName: string;
-  device: string;
-  reportedIssue: string;
-  finalCost: number;
-  status: string;
-}
-
-export interface DailyReportRow {
-  day: number;
-  date: string;
-  dayOfWeek: string;
-  sales: number;
-  grossProfit: number;
-  expenses: number;
-  payables: number;
-  netProfit: number;
-  remarks: string;
-  expenseItems?: DailyReportExpenseItem[];
-  payableItems?: DailyReportPayableItem[];
-  saleItems?: DailyReportSaleItem[];
-  adjustmentItems?: DailyReportAdjustmentItem[];
-  repairItems?: DailyReportRepairItem[];
-}
-
-export interface ExpenseRecord {
-  id: number;
-  year: number;
-  month: number;
-  category: string;
-  title: string;
-  amount: number;
-  expenseDate: number;
-  paymentMethod: string;
-  notes?: string | null;
-  createdAt?: number;
-}
-
-export type CreateExpenseInput = Omit<ExpenseRecord, "id">;
-
-export type UpdateExpenseInput = Partial<CreateExpenseInput>;
-
-export interface MonthlyExpenseSummary {
-  total: number;
-  byCategory: Record<string, number>;
-  count?: number;
-}
-
-export interface MonthlyReportDetail {
-  id?: number;
-  year: number;
-  month: number;
-  monthLabel: string;
-  grossSales: number;
-  grossProfit: number;
-  totalExpenses: number;
-  netProfit: number;
-  collectedCash: number;
-  receivables: number;
-  payables: number;
-  repairRevenue: number;
-  swapMargin: number;
-  dailyData: DailyReportRow[];
-  expenses: ExpenseRecord[];
-  status: "OPEN" | "CLOSED";
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export type MonthlyReportHistoryItem = Omit<MonthlyReportDetail, "dailyData" | "expenses">;
-
+// Compatibility aliases for components migrating over
+export type Customer = RetailShop;
+export type InventoryItem = Product;
+export type CategoryRecord = { id: number; name: string; description: string };

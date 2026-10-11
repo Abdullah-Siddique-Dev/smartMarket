@@ -1,169 +1,325 @@
-import React, { useState, useEffect } from "react";
-import { CheckCircle2 } from "lucide-react";
-import { ExpenseRecord } from "../db/schema";
+import React, { useState, useEffect, useMemo } from "react";
 import {
-  getExpensesByMonth,
+  Plus,
+  Search,
+  Receipt,
+  Trash2,
+  X,
+} from "lucide-react";
+import { Expense, EXPENSE_CATEGORIES, ExpenseCategory } from "../db/schema";
+import {
+  getExpenses,
+  addExpense,
   deleteExpense,
-  updateExpense,
+  getExpenseSummary,
 } from "../db/expenseService";
-import { ExpenseHeader, MONTH_NAMES } from "../components/expenses/ExpenseHeader";
-import { ExpenseSummaryCards } from "../components/expenses/ExpenseSummaryCards";
-import { ExpenseTable } from "../components/expenses/ExpenseTable";
-import { AddExpenseModal } from "../components/expenses/AddExpenseModal";
-import { ApplyRecurringModal } from "../components/expenses/ApplyRecurringModal";
+import { PageHeader } from "../components/ui/PageHeader";
 
 export const ExpensesPage: React.FC = () => {
-  const now = new Date();
-  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
-  const [showAddModal, setShowAddModal] = useState<boolean>(false);
-  const [showRecurringModal, setShowRecurringModal] = useState<boolean>(false);
-  const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [summary, setSummary] = useState({ totalToday: 0, totalThisMonth: 0, totalThisYear: 0 });
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isAddOpen, setIsAddOpen] = useState(false);
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3500);
-  };
+  // Form states
+  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [category, setCategory] = useState<ExpenseCategory>("FUEL_TRANSPORT");
+  const [amount, setAmount] = useState<number>(0);
+  const [description, setDescription] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
 
-  const loadExpenses = async () => {
-    setLoading(true);
+  const fetchData = async () => {
     try {
-      setExpenses(await getExpensesByMonth(selectedYear, selectedMonth));
+      const [list, sum] = await Promise.all([getExpenses(), getExpenseSummary()]);
+      setExpenses(list);
+      setSummary(sum);
     } catch (err) {
       console.error("Failed to load expenses:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadExpenses();
-  }, [selectedYear, selectedMonth]);
+    fetchData();
+  }, []);
+
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const matchCat = selectedCategory === "ALL" || e.category === selectedCategory;
+      const matchSearch =
+        !searchQuery.trim() || e.description.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCat && matchSearch;
+    });
+  }, [expenses, selectedCategory, searchQuery]);
+
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!description.trim() || amount <= 0) return;
+
+    try {
+      await addExpense({
+        expenseDate,
+        category,
+        amount,
+        description,
+        paymentMethod,
+        createdBy: 1,
+      });
+
+      setIsAddOpen(false);
+      setAmount(0);
+      setDescription("");
+      fetchData();
+    } catch (err) {
+      console.error("Failed to record expense:", err);
+    }
+  };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this expense?")) return;
-    try {
+    if (confirm("Delete this expense record?")) {
       await deleteExpense(id);
-      showToast("Expense deleted");
-      await loadExpenses();
-    } catch (err) {
-      console.error("Failed to delete expense:", err);
+      fetchData();
     }
   };
-
-  const handleEdit = (exp: ExpenseRecord) => {
-    setEditingExpense(exp);
-    setShowAddModal(true);
-  };
-
-  const handleQuickUpdateAmount = async (id: number, newAmount: number) => {
-    try {
-      await updateExpense(id, { amount: newAmount });
-      showToast("Expense amount updated");
-      await loadExpenses();
-    } catch (err) {
-      console.error("Failed to update expense amount:", err);
-    }
-  };
-
-  const handleApplyRecurring = () => {
-    setShowRecurringModal(true);
-  };
-
-  const total = expenses.reduce((acc, e) => acc + e.amount, 0);
-  const fixed = expenses
-    .filter((e) => ["RENT", "SALARY", "SECURITY_GUARD", "INTERNET", "UTILITIES"].includes(e.category))
-    .reduce((acc, e) => acc + e.amount, 0);
-  const monthName = MONTH_NAMES[selectedMonth - 1];
 
   return (
     <div className="space-y-6">
-      {toastMsg && (
-        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-brand-600 text-white px-4 py-2.5 rounded-xl shadow-theme-lg text-xs font-medium animate-in fade-in">
-          <CheckCircle2 className="size-4" />
-          <span>{toastMsg}</span>
+      <PageHeader
+        title="Operational Business Expenses"
+        description="Track vehicle fuel, driver costs, utility bills, warehouse rent and miscellaneous overheads"
+      >
+        <button
+          type="button"
+          onClick={() => setIsAddOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs rounded-xl shadow-theme-xs transition-colors cursor-pointer"
+        >
+          <Plus className="size-4" /> Record Expense
+        </button>
+      </PageHeader>
+
+      {/* Summary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-theme-xs space-y-1">
+          <span className="text-[10px] uppercase font-bold text-gray-400">Today's Expenses</span>
+          <span className="text-2xl font-black font-mono text-gray-900 dark:text-gray-100 block">
+            Rs. {summary.totalToday.toLocaleString()}
+          </span>
         </div>
-      )}
 
-      <ExpenseHeader
-        selectedYear={selectedYear}
-        selectedMonth={selectedMonth}
-        onYearChange={setSelectedYear}
-        onMonthChange={setSelectedMonth}
-        onApplyRecurring={handleApplyRecurring}
-        onOpenAddModal={() => {
-          setEditingExpense(null);
-          setShowAddModal(true);
-        }}
-      />
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-theme-xs space-y-1">
+          <span className="text-[10px] uppercase font-bold text-gray-400">This Month Expenses</span>
+          <span className="text-2xl font-black font-mono text-amber-600 dark:text-amber-400 block">
+            Rs. {summary.totalThisMonth.toLocaleString()}
+          </span>
+        </div>
 
-      <ExpenseSummaryCards
-        totalExpenseAmount={total}
-        fixedOverheads={fixed}
-        variableExpenses={total - fixed}
-        expenseCount={expenses.length}
-        monthName={monthName}
-      />
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-theme-xs space-y-1">
+          <span className="text-[10px] uppercase font-bold text-gray-400">Total Year Overhead</span>
+          <span className="text-2xl font-black font-mono text-rose-600 dark:text-rose-400 block">
+            Rs. {summary.totalThisYear.toLocaleString()}
+          </span>
+        </div>
+      </div>
 
-      <ExpenseTable
-        expenses={expenses}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        categoryFilter={categoryFilter}
-        onCategoryFilterChange={setCategoryFilter}
-        onDelete={handleDelete}
-        onEdit={handleEdit}
-        onQuickUpdateAmount={handleQuickUpdateAmount}
-        onApplyRecurring={handleApplyRecurring}
-        loading={loading}
-        monthName={monthName}
-        selectedYear={selectedYear}
-      />
+      {/* Filter and Search Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-theme-xs">
+        <div className="flex items-center gap-2 overflow-x-auto max-w-full">
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5"
+          >
+            <option value="ALL">All Categories</option>
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat.replace("_", " ")}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <AddExpenseModal
-        isOpen={showAddModal}
-        onClose={() => {
-          setShowAddModal(false);
-          setEditingExpense(null);
-        }}
-        selectedYear={selectedYear}
-        selectedMonth={selectedMonth}
-        monthName={monthName}
-        expenseToEdit={editingExpense}
-        onExpenseAdded={() => {
-          showToast(
-            editingExpense
-              ? "Expense updated successfully"
-              : "Expense recorded successfully"
-          );
-          loadExpenses();
-        }}
-      />
+        <div className="relative min-w-[240px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search description..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-none"
+          />
+        </div>
+      </div>
 
-      {/* Customize & Apply Recurring Expenses Modal */}
-      {showRecurringModal && (
-        <ApplyRecurringModal
-          isOpen={showRecurringModal}
-          onClose={() => setShowRecurringModal(false)}
-          selectedYear={selectedYear}
-          selectedMonth={selectedMonth}
-          monthName={monthName}
-          categoryFilter="ALL"
-          existingExpenses={expenses}
-          onApplied={(applied, _skipped) => {
-            showToast(
-              applied > 0
-                ? `Applied ${applied} recurring overheads`
-                : "Recurring expenses updated"
-            );
-            loadExpenses();
-          }}
-        />
+      {/* Expenses Table */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-theme-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-800/40 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                <th className="py-3 px-4">Date</th>
+                <th className="py-3 px-4">Category</th>
+                <th className="py-3 px-4">Description</th>
+                <th className="py-3 px-4">Payment Method</th>
+                <th className="py-3 px-4 text-right">Amount</th>
+                <th className="py-3 px-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60">
+              {filteredExpenses.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-10 text-center text-gray-400">
+                    No expense records found.
+                  </td>
+                </tr>
+              ) : (
+                filteredExpenses.map((exp) => (
+                  <tr key={exp.id} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
+                    <td className="py-3 px-4 font-mono text-gray-500">{exp.expenseDate}</td>
+                    <td className="py-3 px-4">
+                      <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[10px] font-bold text-gray-700 dark:text-gray-300">
+                        {exp.category.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-semibold text-gray-900 dark:text-gray-100">
+                      {exp.description}
+                    </td>
+                    <td className="py-3 px-4 text-gray-500 font-mono text-[11px]">
+                      {exp.paymentMethod}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
+                      Rs. {exp.amount.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(exp.id)}
+                        className="text-gray-400 hover:text-rose-500 transition-colors"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add Expense Modal */}
+      {isAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-md w-full p-6 shadow-theme-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <Receipt className="size-5 text-brand-600" />
+                <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                  Record Expense
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSubmit} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Expense Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={expenseDate}
+                    onChange={(e) => setExpenseDate(e.target.value)}
+                    className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Category *
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+                    className="w-full text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  >
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c.replace("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Amount (Rs.) *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={amount || ""}
+                  onChange={(e) => setAmount(Number(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-full text-base font-black font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-right text-rose-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Description / Reason *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Delivery Van Fuel for G-9 Route"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Payment Method
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="w-full text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                >
+                  <option value="CASH">Cash in Hand</option>
+                  <option value="BANK">Bank Account</option>
+                  <option value="CREDIT">Vendor Credit</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddOpen(false)}
+                  className="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-theme-xs cursor-pointer"
+                >
+                  Save Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

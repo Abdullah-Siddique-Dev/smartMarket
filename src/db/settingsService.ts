@@ -5,7 +5,7 @@ export interface StoreSettings {
   storeAddress: string;
   storePhone: string;
   currencySymbol: string;
-  taxRate: string;
+  receiptFooter: string;
 }
 
 export async function getStoreSettings(): Promise<StoreSettings> {
@@ -13,11 +13,11 @@ export async function getStoreSettings(): Promise<StoreSettings> {
   const sqlDb = await getSqlDb();
 
   const defaultSettings: StoreSettings = {
-    storeName: "Tasnim PC Hardware & Systems",
-    storeAddress: "Shop #12, Computer Plaza, Main Boulevard",
+    storeName: "Smart Wholesale Market",
+    storeAddress: "Wholesale Market, Main Commercial Road",
     storePhone: "+92 300 1234567",
     currencySymbol: "PKR ",
-    taxRate: "0.0",
+    receiptFooter: "Thank you for doing business with us! Check goods before loading.",
   };
 
   if (isTauri && sqlDb) {
@@ -32,8 +32,8 @@ export async function getStoreSettings(): Promise<StoreSettings> {
         storeName: settingsMap["store_name"] || defaultSettings.storeName,
         storeAddress: settingsMap["store_address"] || defaultSettings.storeAddress,
         storePhone: settingsMap["store_phone"] || defaultSettings.storePhone,
-        currencySymbol: "PKR ",
-        taxRate: "0.0",
+        currencySymbol: settingsMap["currency_symbol"] || defaultSettings.currencySymbol,
+        receiptFooter: settingsMap["receipt_footer"] || defaultSettings.receiptFooter,
       };
     } catch (err) {
       console.warn("Failed to read settings from SQLite, using defaults:", err);
@@ -44,8 +44,8 @@ export async function getStoreSettings(): Promise<StoreSettings> {
     storeName: memoryStore.settings["store_name"] || defaultSettings.storeName,
     storeAddress: memoryStore.settings["store_address"] || defaultSettings.storeAddress,
     storePhone: memoryStore.settings["store_phone"] || defaultSettings.storePhone,
-    currencySymbol: "PKR ",
-    taxRate: "0.0",
+    currencySymbol: memoryStore.settings["currency_symbol"] || defaultSettings.currencySymbol,
+    receiptFooter: memoryStore.settings["receipt_footer"] || defaultSettings.receiptFooter,
   };
 }
 
@@ -59,7 +59,7 @@ export async function updateStoreSettings(settings: StoreSettings): Promise<void
       ["store_address", settings.storeAddress],
       ["store_phone", settings.storePhone],
       ["currency_symbol", settings.currencySymbol],
-      ["tax_rate", settings.taxRate],
+      ["receipt_footer", settings.receiptFooter],
     ];
 
     for (const [key, value] of entries) {
@@ -76,5 +76,5 @@ export async function updateStoreSettings(settings: StoreSettings): Promise<void
   memoryStore.settings["store_address"] = settings.storeAddress;
   memoryStore.settings["store_phone"] = settings.storePhone;
   memoryStore.settings["currency_symbol"] = settings.currencySymbol;
-  memoryStore.settings["tax_rate"] = settings.taxRate;
+  memoryStore.settings["receipt_footer"] = settings.receiptFooter;
 }

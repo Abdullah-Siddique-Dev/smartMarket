@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ComputerShopOS",
-  "version": "0.1.0",
-  "identifier": "com.tasnim.pcshop",
+  "productName": "SmartMarketOS",
+  "version": "1.0.0",
+  "identifier": "com.smartmarket.os",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "ComputerShopOS - Store Management System",
+        "title": "Smart Market OS - Wholesale Management System",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

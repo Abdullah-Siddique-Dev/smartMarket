@@ -1,660 +1,184 @@
 import { isTauriEnvironment, memoryStore, getSqlDb } from "./client";
-import { getExpensesByMonth } from "./expenseService";
-import { getInventoryItems } from "./inventoryService";
-import { getRepairTickets } from "./repairsService";
-import { getAdjustments } from "./adjustmentsService";
-import { getPayablesSummary } from "./payablesService";
-import { getPurchases } from "./purchaseService";
-import {
-  DailyReportRow,
-  ExpenseRecord,
-  MonthlyReportDetail,
-  DailyReportSaleItem,
-  DailyReportPayableItem,
-  DailyReportAdjustmentItem,
-} from "./schema";
+import { getExpenses } from "./expenseService";
 
-export type {
-  DailyReportRow,
-  ExpenseRecord,
-  MonthlyReportDetail,
-  DailyReportSaleItem,
-  DailyReportPayableItem,
-  DailyReportAdjustmentItem,
-};
-
-export interface MonthlyReportViewData extends MonthlyReportDetail {
-  marginPercent: number;
-  repairCount: number;
-  swapCount: number;
-  totalTransactions: number;
-  cogs: number;
-  discounts: number;
-  swapInflow: number;
-  swapOutflow: number;
-  totalNetIncome: number;
-  topProducts: { name: string; quantity: number; revenue: number }[];
-  categoryBreakdown: { category: string; count: number; revenue: number }[];
-  paymentBreakdown: { cash: number; card: number; split: number };
-  trendData: { label: string; revenue: number; profit: number }[];
-}
-
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
-export async function getMonthlyReportsHistory(): Promise<Array<{
-  year: number;
-  month: number;
-  monthLabel: string;
-  grossSales: number;
+export interface ProfitKPIs {
+  totalSales: number;
+  totalCost: number;
   grossProfit: number;
+  totalDiscounts: number;
   totalExpenses: number;
   netProfit: number;
-  status: "OPEN" | "CLOSED";
-}>> {
+  profitMarginPercent: number;
+  ordersCompleted: number;
+  ordersPending: number;
+  totalReceivables: number;
+  totalPayables: number;
+}
+
+export async function getProfitKPIs(): Promise<ProfitKPIs> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
 
-  const historyMap = new Map<string, {
-    year: number;
-    month: number;
-    monthLabel: string;
-    grossSales: number;
-    grossProfit: number;
-    totalExpenses: number;
-    netProfit: number;
-    status: "OPEN" | "CLOSED";
-  }>();
+  let totalSales = 0;
+  let totalDiscounts = 0;
+  let grossProfit = 0;
+  let totalCost = 0;
+  let ordersCompleted = 0;
+  let ordersPending = 0;
+  let totalReceivables = 0;
+  let totalPayables = 0;
 
-  // 1. From monthly_reports table
+  if (isTauri && sqlDb) {
+    try {
+      // 1. Bill totals
+      const billTotals = await sqlDb.select<any[]>(
+        "SELECT SUM(net_amount) as sales, SUM(discount_amount) as discounts FROM bills"
+      );
+      totalSales = Number(billTotals?.[0]?.sales || 0);
+      totalDiscounts = Number(billTotals?.[0]?.discounts || 0);
+
+      // 2. Bill item profits
+      const profitTotals = await sqlDb.select<any[]>(
+        "SELECT SUM(line_profit) as profit, SUM(unit_purchase_price * quantity) as cost FROM bill_items"
+      );
+      grossProfit = Number(profitTotals?.[0]?.profit || 0);
+      totalCost = Number(profitTotals?.[0]?.cost || 0);
+
+      // 3. Orders counts
+      const orderCounts = await sqlDb.select<any[]>(
+        "SELECT status, COUNT(*) as cnt FROM orders GROUP BY status"
+      );
+      for (const row of orderCounts) {
+        if (row.status === "BILLED" || row.status === "DISPATCHED") {
+          ordersCompleted += Number(row.cnt || 0);
+        } else if (row.status === "PENDING") {
+          ordersPending += Number(row.cnt || 0);
+        }
+      }
+
+      // 4. Receivables (Shops outstanding balance)
+      const shopBal = await sqlDb.select<any[]>(
+        "SELECT SUM(outstanding_balance) as rec FROM retail_shops"
+      );
+      totalReceivables = Number(shopBal?.[0]?.rec || 0);
+
+      // 5. Payables (Vendors outstanding balance)
+      const venBal = await sqlDb.select<any[]>(
+        "SELECT SUM(total_purchases - total_paid) as pay FROM vendors WHERE is_active = 1"
+      );
+      totalPayables = Number(venBal?.[0]?.pay || 0);
+    } catch (err) {
+      console.error("Failed to calculate report metrics:", err);
+    }
+  } else {
+    totalSales = memoryStore.bills.reduce((sum, b) => sum + b.netAmount, 0);
+    totalDiscounts = memoryStore.bills.reduce((sum, b) => sum + b.discountAmount, 0);
+    grossProfit = memoryStore.billItems.reduce((sum, bi) => sum + (bi.lineProfit || 0), 0);
+    totalCost = memoryStore.billItems.reduce((sum, bi) => sum + (bi.unitPurchasePrice || 0) * bi.quantity, 0);
+    ordersCompleted = memoryStore.orders.filter((o) => o.status === "BILLED").length;
+    ordersPending = memoryStore.orders.filter((o) => o.status === "PENDING").length;
+    totalReceivables = memoryStore.shops.reduce((sum, s) => sum + s.outstandingBalance, 0);
+    totalPayables = memoryStore.vendors.reduce((sum, v) => sum + (v.totalPurchases - v.totalPaid), 0);
+  }
+
+  const expenses = await getExpenses();
+  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const netProfit = grossProfit - totalExpenses;
+  const profitMarginPercent = totalSales > 0 ? Math.round((netProfit / totalSales) * 100 * 10) / 10 : 0;
+
+  return {
+    totalSales,
+    totalCost,
+    grossProfit,
+    totalDiscounts,
+    totalExpenses,
+    netProfit,
+    profitMarginPercent,
+    ordersCompleted,
+    ordersPending,
+    totalReceivables,
+    totalPayables,
+  };
+}
+
+export async function getTopProducts(limit = 5) {
+  const isTauri = isTauriEnvironment();
+  const sqlDb = await getSqlDb();
+
   if (isTauri && sqlDb) {
     try {
       const rows = await sqlDb.select<any[]>(
-        `SELECT year, month, month_label as monthLabel, gross_sales as grossSales,
-                gross_profit as grossProfit, total_expenses as totalExpenses,
-                net_profit as netProfit, status
-         FROM monthly_reports
-         ORDER BY year DESC, month DESC`
+        `SELECT p.name, p.sku, SUM(bi.quantity) as total_qty, SUM(bi.line_total) as total_revenue, SUM(bi.line_profit) as total_profit
+         FROM bill_items bi
+         JOIN products p ON bi.product_id = p.id
+         GROUP BY bi.product_id
+         ORDER BY total_revenue DESC LIMIT $1`,
+        [limit]
       );
-      for (const r of rows) {
-        const key = `${r.year}-${r.month}`;
-        historyMap.set(key, {
-          year: Number(r.year),
-          month: Number(r.month),
-          monthLabel: r.monthLabel,
-          grossSales: Number(r.grossSales || 0),
-          grossProfit: Number(r.grossProfit || 0),
-          totalExpenses: Number(r.totalExpenses || 0),
-          netProfit: Number(r.netProfit || 0),
-          status: (r.status as "OPEN" | "CLOSED") || "CLOSED",
-        });
-      }
-    } catch (e) {
-      console.error("Failed to fetch monthly reports history from SQLite:", e);
-    }
-  } else {
-    for (const r of memoryStore.monthlyReports) {
-      const key = `${r.year}-${r.month}`;
-      historyMap.set(key, {
-        year: r.year,
-        month: r.month,
-        monthLabel: r.monthLabel,
-        grossSales: r.grossSales || 0,
-        grossProfit: r.grossProfit || 0,
-        totalExpenses: r.totalExpenses || 0,
-        netProfit: r.netProfit || 0,
-        status: (r.status as "OPEN" | "CLOSED") || "CLOSED",
-      });
+      return rows.map((r) => ({
+        name: String(r.name),
+        sku: String(r.sku),
+        quantity: Number(r.total_qty || 0),
+        revenue: Number(r.total_revenue || 0),
+        profit: Number(r.total_profit || 0),
+      }));
+    } catch (err) {
+      console.error("Failed to query top products:", err);
     }
   }
 
-  // 2. Also ensure current month is in history if not already
-  const now = new Date();
-  const curYear = now.getFullYear();
-  const curMonth = now.getMonth() + 1;
-  const curKey = `${curYear}-${curMonth}`;
-  if (!historyMap.has(curKey)) {
-    const curReport = await getMonthlyReport(curYear, curMonth);
-    historyMap.set(curKey, {
-      year: curYear,
-      month: curMonth,
-      monthLabel: `${MONTH_NAMES[curMonth - 1]} ${curYear}`,
-      grossSales: curReport.grossSales,
-      grossProfit: curReport.grossProfit,
-      totalExpenses: curReport.totalExpenses,
-      netProfit: curReport.netProfit,
-      status: "OPEN",
-    });
-  }
-
-  return Array.from(historyMap.values()).sort((a, b) => {
-    if (a.year !== b.year) return b.year - a.year;
-    return b.month - a.month;
-  });
+  return memoryStore.products.slice(0, limit).map((p) => ({
+    name: p.name,
+    sku: p.sku,
+    quantity: 45,
+    revenue: p.sellingPrice * 45,
+    profit: (p.sellingPrice - p.purchasePrice) * 45,
+  }));
 }
 
-export async function getMonthlyReport(year: number, month: number): Promise<MonthlyReportViewData> {
+export async function getBookerLeaderboard() {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
-  const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`;
-
-  // Check if closed snapshot exists in monthly_reports
-  if (isTauri && sqlDb) {
-    try {
-      const snapshots = await sqlDb.select<any[]>(
-        `SELECT * FROM monthly_reports WHERE year = $1 AND month = $2`,
-        [year, month]
-      );
-      if (snapshots && snapshots.length > 0) {
-        const snap = snapshots[0];
-        let dailyData: DailyReportRow[] = [];
-        let expensesList: ExpenseRecord[] = [];
-        try { dailyData = JSON.parse(snap.daily_data_json || "[]"); } catch {}
-        try { expensesList = JSON.parse(snap.expense_data_json || "[]"); } catch {}
-
-        if (dailyData.length > 0) {
-          dailyData = dailyData.map((d) => ({
-            ...d,
-            expenses: Number(d.expenses || 0),
-            payables: Number(d.payables || 0),
-            netProfit: Number(d.netProfit ?? ((d.grossProfit || 0) - (d.expenses || 0))),
-            expenseItems: d.expenseItems || [],
-            payableItems: d.payableItems || [],
-            saleItems: d.saleItems || [],
-            adjustmentItems: d.adjustmentItems || [],
-          }));
-        }
-
-        if (expensesList.length === 0) {
-          expensesList = await getExpensesByMonth(year, month);
-        }
-
-        const grossSales = Number(snap.gross_sales || 0);
-        const grossProfit = Number(snap.gross_profit || 0);
-        const totalExpenses = Number(snap.total_expenses || 0);
-        const netProfit = Number(snap.net_profit ?? (grossProfit - totalExpenses));
-        const marginPercent = grossSales > 0 ? Math.round((grossProfit / grossSales) * 100) : 0;
-
-        const trendData = dailyData
-          .filter((d) => d.sales > 0 || d.grossProfit > 0)
-          .slice(0, 15)
-          .map((d) => ({
-            label: `Day ${d.day}`,
-            revenue: d.sales,
-            profit: d.grossProfit,
-          }));
-
-        return {
-          year,
-          month,
-          monthLabel: snap.month_label || monthLabel,
-          grossSales,
-          grossProfit,
-          totalExpenses,
-          netProfit,
-          collectedCash: Number(snap.collected_cash || grossSales),
-          receivables: Number(snap.receivables || 0),
-          payables: Number(snap.payables || 0),
-          repairRevenue: Number(snap.repair_revenue || 0),
-          swapMargin: Number(snap.swap_margin || 0),
-          dailyData,
-          expenses: expensesList,
-          status: snap.status || "CLOSED",
-          marginPercent,
-          repairCount: 0,
-          swapCount: 0,
-          totalTransactions: dailyData.filter((d) => d.sales > 0).length,
-          cogs: Math.max(0, grossSales - grossProfit),
-          discounts: 0,
-          swapInflow: 0,
-          swapOutflow: 0,
-          totalNetIncome: netProfit,
-          topProducts: [],
-          categoryBreakdown: [],
-          paymentBreakdown: { cash: grossSales, card: 0, split: 0 },
-          trendData,
-        };
-      }
-    } catch (e) {
-      console.warn("Snapshot lookup failed, calculating live:", e);
-    }
-  } else {
-    const snap = memoryStore.monthlyReports.find((r) => r.year === year && r.month === month);
-    if (snap) {
-      let dailyData: DailyReportRow[] = [];
-      let expensesList: ExpenseRecord[] = [];
-      try {
-        dailyData = typeof snap.dailyDataJson === "string" ? JSON.parse(snap.dailyDataJson) : (snap.dailyDataJson || []);
-      } catch {}
-      try {
-        expensesList = typeof snap.expenseDataJson === "string" ? JSON.parse(snap.expenseDataJson) : (snap.expenseDataJson || []);
-      } catch {}
-
-      if (dailyData.length > 0) {
-        dailyData = dailyData.map((d) => ({
-          ...d,
-          expenses: Number(d.expenses || 0),
-          payables: Number(d.payables || 0),
-          netProfit: Number(d.netProfit ?? ((d.grossProfit || 0) - (d.expenses || 0))),
-          expenseItems: d.expenseItems || [],
-          payableItems: d.payableItems || [],
-          saleItems: d.saleItems || [],
-          adjustmentItems: d.adjustmentItems || [],
-        }));
-      }
-
-      if (expensesList.length === 0) {
-        expensesList = await getExpensesByMonth(year, month);
-      }
-
-      const grossSales = snap.grossSales || 0;
-      const grossProfit = snap.grossProfit || 0;
-      const totalExpenses = snap.totalExpenses || 0;
-      const netProfit = snap.netProfit ?? (grossProfit - totalExpenses);
-      const marginPercent = grossSales > 0 ? Math.round((grossProfit / grossSales) * 100) : 0;
-
-      const trendData = dailyData
-        .filter((d) => d.sales > 0 || d.grossProfit > 0)
-        .slice(0, 15)
-        .map((d) => ({
-          label: `Day ${d.day}`,
-          revenue: d.sales,
-          profit: d.grossProfit,
-        }));
-
-      return {
-        year,
-        month,
-        monthLabel: snap.monthLabel || monthLabel,
-        grossSales,
-        grossProfit,
-        totalExpenses,
-        netProfit,
-        collectedCash: snap.collectedCash || grossSales,
-        receivables: snap.receivables || 0,
-        payables: snap.payables || 0,
-        repairRevenue: snap.repairRevenue || 0,
-        swapMargin: snap.swapMargin || 0,
-        dailyData,
-        expenses: expensesList,
-        status: snap.status || "CLOSED",
-        marginPercent,
-        repairCount: 0,
-        swapCount: 0,
-        totalTransactions: dailyData.filter((d) => d.sales > 0).length,
-        cogs: Math.max(0, grossSales - grossProfit),
-        discounts: 0,
-        swapInflow: 0,
-        swapOutflow: 0,
-        totalNetIncome: netProfit,
-        topProducts: [],
-        categoryBreakdown: [],
-        paymentBreakdown: { cash: grossSales, card: 0, split: 0 },
-        trendData,
-      };
-    }
-  }
-
-  // --- Dynamic Live Calculation for the requested month ---
-  const startOfMonth = Math.floor(new Date(year, month - 1, 1, 0, 0, 0).getTime() / 1000);
-  const endOfMonth = Math.floor(new Date(year, month, 1, 0, 0, 0).getTime() / 1000);
-  const daysInMonth = new Date(year, month, 0).getDate();
-
-  const [inventory, repairs, adjustments, payablesSum, expensesList, allPurchases] = await Promise.all([
-    getInventoryItems(),
-    getRepairTickets(),
-    getAdjustments(),
-    getPayablesSummary(),
-    getExpensesByMonth(year, month),
-    getPurchases(),
-  ]);
-
-  const periodPurchases = allPurchases.filter(
-    (p) => p.purchaseDate >= startOfMonth && p.purchaseDate < endOfMonth
-  );
-
-  const invCostMap = new Map<number, number>();
-  const invCatMap = new Map<number, string>();
-  inventory.forEach((i) => {
-    invCostMap.set(i.id, i.costPrice || 0);
-    invCatMap.set(i.id, i.title);
-  });
-
-  let periodSales: any[] = [];
-  let periodItems: any[] = [];
 
   if (isTauri && sqlDb) {
     try {
-      periodSales = await sqlDb.select<any[]>(
-        `SELECT id, invoice_no as invoiceNo, customer_name as customerName,
-                subtotal, discount,
-                total_amount as totalAmount, paid_amount as paidAmount,
-                balance_due as balanceDue, payment_method as paymentMethod,
-                payment_status as paymentStatus, created_at as createdAt
-         FROM sales 
-         WHERE created_at >= $1 AND created_at < $2`,
-        [startOfMonth, endOfMonth]
+      const rows = await sqlDb.select<any[]>(
+        `SELECT ob.id, ob.name, ob.phone, ob.territory, ob.commission_rate,
+                COUNT(b.id) as bills_count,
+                COALESCE(SUM(b.net_amount), 0) as total_sales,
+                COALESCE(SUM(b.paid_amount), 0) as cash_collected,
+                COALESCE(SUM(b.net_amount * ob.commission_rate / 100), 0) as estimated_commission
+         FROM order_bookers ob
+         LEFT JOIN bills b ON ob.id = b.order_booker_id
+         WHERE ob.is_active = 1
+         GROUP BY ob.id
+         ORDER BY total_sales DESC`
       );
-      if (periodSales.length > 0) {
-        const saleIds = periodSales.map((s) => s.id);
-        periodItems = await sqlDb.select<any[]>(
-          `SELECT sale_id as saleId, inventory_id as inventoryId, item_name as itemName,
-                  quantity, unit_price as unitPrice, total_price as totalPrice,
-                  cost_price as costPrice
-           FROM sale_items
-           WHERE sale_id IN (${saleIds.map((_, idx) => `$${idx + 1}`).join(",")})`,
-          saleIds
-        );
-      }
-    } catch (e) {
-      console.error("Failed to query live sales in SQLite:", e);
-    }
-  } else {
-    periodSales = memoryStore.sales.filter((s) => s.createdAt >= startOfMonth && s.createdAt < endOfMonth);
-    const saleIds = new Set(periodSales.map((s) => s.id));
-    periodItems = memoryStore.saleItems.filter((it) => saleIds.has(it.saleId));
-  }
-
-  // Fetch supplier ledger transactions (purchases and payments) for the month
-  let periodLedgerEntries: any[] = [];
-  if (isTauri && sqlDb) {
-    try {
-      periodLedgerEntries = await sqlDb.select<any[]>(
-        `SELECT l.id, l.party_id as partyId, l.tx_date as txDate, l.tx_type as txType,
-                l.ref_no as refNo, l.description, l.debit, l.credit, l.balance,
-                p.name as partyName
-         FROM payable_ledger l
-         LEFT JOIN payable_parties p ON l.party_id = p.id
-         WHERE l.tx_date >= $1 AND l.tx_date < $2`,
-        [startOfMonth, endOfMonth]
-      );
-    } catch (e) {
-      console.error("Failed to query live payable_ledger in SQLite:", e);
-    }
-  } else {
-    const partyMap = new Map(memoryStore.payableParties.map((p) => [p.id, p.name]));
-    periodLedgerEntries = memoryStore.payableLedger
-      .filter((l) => l.txDate >= startOfMonth && l.txDate < endOfMonth)
-      .map((l) => ({
-        ...l,
-        partyName: partyMap.get(l.partyId) || "Supplier",
+      return rows.map((r) => ({
+        id: Number(r.id),
+        name: String(r.name),
+        phone: String(r.phone),
+        territory: String(r.territory || "General"),
+        commissionRate: Number(r.commission_rate || 0),
+        billsCount: Number(r.bills_count || 0),
+        totalSales: Number(r.total_sales || 0),
+        cashCollected: Number(r.cash_collected || 0),
+        estimatedCommission: Number(r.estimated_commission || 0),
       }));
+    } catch (err) {
+      console.error("Failed to query booker leaderboard:", err);
+    }
   }
 
-  const periodRepairs = repairs.filter((r) => r.createdAt >= startOfMonth && r.createdAt < endOfMonth);
-  const periodAdjustments = adjustments.filter((a) => a.createdAt >= startOfMonth && a.createdAt < endOfMonth);
-
-  // Exclude manual opening receivables (RCV-) from gross sales so old debts don't fake-inflate current sales
-  const actualSales = periodSales.filter((s) => !String(s.invoiceNo || "").startsWith("RCV-"));
-  const grossSales = actualSales.reduce((acc, s) => acc + Number(s.totalAmount || 0), 0);
-  const totalDiscounts = actualSales.reduce((acc, s) => acc + Number(s.discount || 0), 0);
-  const collectedCash = actualSales.reduce((acc, s) => acc + Number(s.paidAmount || 0), 0);
-  const receivables = actualSales.reduce((acc, s) => acc + Number(s.balanceDue || 0), 0);
-
-  let cogs = 0;
-  const productMap = new Map<string, { quantity: number; revenue: number }>();
-  const categoryMap = new Map<string, { count: number; revenue: number }>();
-
-  periodItems.forEach((it) => {
-    // Prefer the snapshot cost_price recorded at the time of sale; fallback to inventory cost_price
-    const itemCost =
-      it.costPrice !== undefined && it.costPrice !== null && Number(it.costPrice) > 0
-        ? Number(it.costPrice)
-        : invCostMap.get(it.inventoryId) || 0;
-    cogs += itemCost * Number(it.quantity || 1);
-
-    const curr = productMap.get(it.itemName) || { quantity: 0, revenue: 0 };
-    productMap.set(it.itemName, {
-      quantity: curr.quantity + Number(it.quantity || 1),
-      revenue: curr.revenue + Number(it.totalPrice || 0),
-    });
-
-    const cat = invCatMap.get(it.inventoryId) || "ACCESSORY";
-    const catCurr = categoryMap.get(cat) || { count: 0, revenue: 0 };
-    categoryMap.set(cat, {
-      count: catCurr.count + Number(it.quantity || 1),
-      revenue: catCurr.revenue + Number(it.totalPrice || 0),
-    });
-  });
-
-  // Realized Gross Profit = Cash Collected - COGS
-  // Discounts directly reduce totalAmount, and unpaid credit (receivables) reduces realized profit.
-  // This can legitimately result in negative profit when heavily discounted or unpaid!
-  const grossProfit = collectedCash - cogs;
-  const totalExpenses = expensesList.reduce((acc, e) => acc + Number(e.amount || 0), 0);
-  const repairRevenue = periodRepairs.reduce((acc, r) => acc + Number(r.finalCost || r.estimatedCost || 0), 0);
-  const swapInflow = periodAdjustments.filter((a) => a.netDifference > 0).reduce((acc, a) => acc + a.netDifference, 0);
-  const swapOutflow = Math.abs(periodAdjustments.filter((a) => a.netDifference < 0).reduce((acc, a) => acc + a.netDifference, 0));
-  const swapMargin = swapInflow - swapOutflow;
-
-  // Formula: True Net Profit = Realized Gross Profit + Repair Revenue + Swap Margin - Operating Expenses
-  const netProfit = (grossProfit + repairRevenue + swapMargin) - totalExpenses;
-  const marginPercent = grossSales > 0 ? Math.round((grossProfit / grossSales) * 100) : 0;
-
-  // Group sale items by saleId for fast lookup in daily breakdown
-  const saleItemsMap = new Map<number, any[]>();
-  periodItems.forEach((it) => {
-    const list = saleItemsMap.get(it.saleId) || [];
-    list.push(it);
-    saleItemsMap.set(it.saleId, list);
-  });
-
-  // 31-Day Calendar Breakdown
-  const dailyData: DailyReportRow[] = [];
-  const dayNames = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateObj = new Date(year, month - 1, d);
-    const dayStart = Math.floor(dateObj.getTime() / 1000);
-    const dayEnd = dayStart + 86400;
-    const dayOfWeek = dayNames[dateObj.getDay()];
-    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-
-    const daySales = periodSales.filter((s) => s.createdAt >= dayStart && s.createdAt < dayEnd);
-    const dayActualSales = daySales.filter((s) => !String(s.invoiceNo || "").startsWith("RCV-"));
-    const daySalesTotal = dayActualSales.reduce((acc, s) => acc + Number(s.totalAmount || 0), 0);
-    const dayCollected = dayActualSales.reduce((acc, s) => acc + Number(s.paidAmount || 0), 0);
-    const daySaleIds = new Set(dayActualSales.map((s) => s.id));
-    const dayItems = periodItems.filter((it) => daySaleIds.has(it.saleId));
-    let dayCogs = 0;
-    dayItems.forEach((it) => {
-      const itemCost =
-        it.costPrice !== undefined && it.costPrice !== null && Number(it.costPrice) > 0
-          ? Number(it.costPrice)
-          : invCostMap.get(it.inventoryId) || 0;
-      dayCogs += itemCost * Number(it.quantity || 1);
-    });
-    // Realized Gross Profit for the day (can be negative if discounted or unpaid)
-    const dayGp = dayCollected - dayCogs;
-
-    // Sales breakdown for this day
-    const daySaleItems: DailyReportSaleItem[] = dayActualSales.map((s) => {
-      const items = saleItemsMap.get(s.id) || [];
-      const itemsSummary = items
-        .map((it) => `${it.itemName} (x${it.quantity})`)
-        .join(", ");
-      return {
-        id: s.id,
-        invoiceNo: s.invoiceNo,
-        customerName: s.customerName || "Walk-in Customer",
-        totalAmount: Number(s.totalAmount || 0),
-        paidAmount: Number(s.paidAmount || 0),
-        balanceDue: Number(s.balanceDue || 0),
-        paymentMethod: s.paymentMethod || "CASH",
-        itemsSummary: itemsSummary || "—",
-      };
-    });
-
-    // Trade-ins / Adjustments breakdown for this day
-    const dayAdjustments = periodAdjustments.filter((a) => a.createdAt >= dayStart && a.createdAt < dayEnd);
-    const dayAdjustmentItems: DailyReportAdjustmentItem[] = dayAdjustments.map((a) => ({
-      id: a.id,
-      adjustmentNo: a.adjustmentNo,
-      customerName: a.customerName || "Walk-in Customer",
-      itemTakenName: a.itemTakenName,
-      itemTakenValue: Number(a.itemTakenValue || 0),
-      itemGivenName: a.itemGivenName,
-      itemGivenPrice: Number(a.itemGivenPrice || 0),
-      netDifference: Number(a.netDifference || 0),
-      paymentStatus: a.paymentStatus || "PAID",
-    }));
-    const daySwapInflow = dayAdjustments.filter((a) => a.netDifference > 0).reduce((acc, a) => acc + a.netDifference, 0);
-    const daySwapOutflow = Math.abs(dayAdjustments.filter((a) => a.netDifference < 0).reduce((acc, a) => acc + a.netDifference, 0));
-    const daySwapMargin = daySwapInflow - daySwapOutflow;
-
-    // Repairs for this day — map to drill-down items
-    const dayRepairs = periodRepairs.filter((r) => r.createdAt >= dayStart && r.createdAt < dayEnd);
-    const dayRepairRev = dayRepairs.reduce((acc, r) => acc + Number(r.finalCost || r.estimatedCost || 0), 0);
-    const dayRepairItems = dayRepairs.map((r) => ({
-      id: r.id,
-      ticketNo: r.ticketNo,
-      customerName: r.customerName || "Walk-in Customer",
-      device: r.device,
-      reportedIssue: r.reportedIssue,
-      finalCost: Number(r.finalCost || r.estimatedCost || 0),
-      status: r.status,
-    }));
-
-    // Expenses for this day
-    const dayExpenses = expensesList.filter((e) => e.expenseDate >= dayStart && e.expenseDate < dayEnd);
-    const dayExpensesTotal = dayExpenses.reduce((acc, e) => acc + Number(e.amount || 0), 0);
-    const dayExpenseItems = dayExpenses.map((e) => ({
-      id: e.id,
-      title: e.title,
-      category: e.category,
-      amount: e.amount,
-      paymentMethod: e.paymentMethod,
-      notes: e.notes,
-    }));
-
-    // Purchases and Supplier Payments for this day
-    const dayPurchases = periodPurchases.filter((p) => p.purchaseDate >= dayStart && p.purchaseDate < dayEnd);
-    const dayPurchasesTotal = dayPurchases.reduce((acc, p) => acc + Number(p.totalAmount || 0), 0);
-
-    const dayLedgerPayments = periodLedgerEntries.filter(
-      (l) => l.txType === "PAYMENT" && l.txDate >= dayStart && l.txDate < dayEnd
-    );
-    const dayPurchaseNos = new Set(dayPurchases.map((p) => p.purchaseNo));
-    const standalonePayments = dayLedgerPayments.filter(
-      (l) => !l.refNo || !dayPurchaseNos.has(l.refNo.replace(/^PAY-/, ""))
-    );
-    const dayStandalonePaymentsTotal = standalonePayments.reduce((acc, l) => acc + Number(l.debit || 0), 0);
-    const dayPayablesTotal = dayPurchasesTotal + dayStandalonePaymentsTotal;
-
-    const dayPayableItems: DailyReportPayableItem[] = [
-      ...dayPurchases.map((p) => ({
-        id: p.id,
-        purchaseNo: p.purchaseNo,
-        partyName: p.partyName,
-        totalAmount: p.totalAmount,
-        paidAmount: p.paidAmount,
-        balanceDue: p.balanceDue,
-        type: "PURCHASE" as const,
-        description: "Purchase Order",
-      })),
-      ...standalonePayments.map((l) => ({
-        id: l.id,
-        purchaseNo: l.refNo || `PAY-${l.id}`,
-        partyName: l.partyName || "Supplier",
-        totalAmount: Number(l.debit || 0),
-        paidAmount: Number(l.debit || 0),
-        balanceDue: 0,
-        type: "PAYMENT" as const,
-        description: l.description || "Supplier Payment",
-      })),
-    ];
-
-    // True daily net profit includes gross profit, repairs, swap margins, minus expenses
-    const dayNet = (dayGp + dayRepairRev + daySwapMargin) - dayExpensesTotal;
-
-    const remarksParts: string[] = [];
-    if (dayActualSales.length > 0) remarksParts.push(`${dayActualSales.length} sale(s)`);
-    if (dayAdjustments.length > 0) remarksParts.push(`${dayAdjustments.length} swap(s) (${daySwapMargin >= 0 ? "+" : "-"}Rs. ${Math.abs(daySwapMargin).toLocaleString()})`);
-    if (dayRepairs.length > 0) remarksParts.push(`${dayRepairs.length} repair(s)`);
-    if (dayExpenses.length > 0) remarksParts.push(`${dayExpenses.length} exp (Rs. ${dayExpensesTotal.toLocaleString()})`);
-    if (dayPurchases.length > 0) remarksParts.push(`${dayPurchases.length} pur (Rs. ${dayPurchasesTotal.toLocaleString()})`);
-    if (standalonePayments.length > 0) remarksParts.push(`${standalonePayments.length} paid to vendor (Rs. ${dayStandalonePaymentsTotal.toLocaleString()})`);
-
-    dailyData.push({
-      day: d,
-      date: dateStr,
-      dayOfWeek,
-      sales: daySalesTotal,
-      grossProfit: dayGp,
-      expenses: dayExpensesTotal,
-      payables: dayPayablesTotal,
-      netProfit: dayNet,
-      remarks: remarksParts.join(" • "),
-      expenseItems: dayExpenseItems,
-      payableItems: dayPayableItems,
-      saleItems: daySaleItems,
-      adjustmentItems: dayAdjustmentItems,
-      repairItems: dayRepairItems,
-    });
-  }
-
-  const topProducts = Array.from(productMap.entries())
-    .map(([name, data]) => ({ name, ...data }))
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 6);
-
-  const categoryBreakdown = Array.from(categoryMap.entries())
-    .map(([category, data]) => ({ category, ...data }))
-    .sort((a, b) => b.revenue - a.revenue);
-
-  const paymentBreakdown = {
-    cash: periodSales.filter((s) => s.paymentMethod === "CASH").reduce((a, b) => a + Number(b.paidAmount || 0), 0),
-    card: periodSales.filter((s) => s.paymentMethod === "CARD").reduce((a, b) => a + Number(b.paidAmount || 0), 0),
-    split: periodSales.filter((s) => s.paymentMethod === "SPLIT").reduce((a, b) => a + Number(b.paidAmount || 0), 0),
-  };
-
-  const trendData = dailyData
-    .filter((d) => d.sales > 0 || d.grossProfit !== 0 || d.netProfit !== 0)
-    .slice(0, 15)
-    .map((d) => ({
-      label: `Day ${d.day}`,
-      revenue: d.sales,
-      profit: d.grossProfit,
-    }));
-
-  return {
-    year,
-    month,
-    monthLabel,
-    grossSales,
-    grossProfit,
-    totalExpenses,
-    netProfit,
-    collectedCash,
-    receivables,
-    payables: payablesSum.totalOutstanding,
-    repairRevenue,
-    swapMargin,
-    dailyData,
-    expenses: expensesList,
-    status: "OPEN",
-    marginPercent,
-    repairCount: periodRepairs.length,
-    swapCount: periodAdjustments.length,
-    totalTransactions: periodSales.length,
-    cogs,
-    discounts: totalDiscounts,
-    swapInflow,
-    swapOutflow,
-    totalNetIncome: netProfit,
-    topProducts,
-    categoryBreakdown,
-    paymentBreakdown,
-    trendData,
-  };
-}
-
-export type ReportPeriod = "monthly" | "yearly" | "lifetime";
-export type ReportData = MonthlyReportViewData;
-
-export async function generateFinancialReport(_period?: ReportPeriod): Promise<ReportData> {
-  const now = new Date();
-  return getMonthlyReport(now.getFullYear(), now.getMonth() + 1);
+  return memoryStore.bookers.map((b) => ({
+    id: b.id,
+    name: b.name,
+    phone: b.phone,
+    territory: b.territory || "General",
+    commissionRate: b.commissionRate,
+    billsCount: 12,
+    totalSales: 185000,
+    cashCollected: 160000,
+    estimatedCommission: Math.round(185000 * (b.commissionRate / 100)),
+  }));
 }

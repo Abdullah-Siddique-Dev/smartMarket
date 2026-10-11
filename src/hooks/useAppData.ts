@@ -1,56 +1,56 @@
 import { useState, useCallback, useEffect } from "react";
-import { InventoryItem, CategoryRecord } from "../db/schema";
-import { getInventoryItems } from "../db/inventoryService";
-import { getCustomersCount } from "../db/customerService";
-import { getActiveRepairsCount } from "../db/repairsService";
-import { getPayablesSummary } from "../db/payablesService";
-import { getCategories } from "../db/categoryService";
+import { Product, RetailShop, OrderBooker, Order, Vendor } from "../db/schema";
+import { getProducts } from "../db/productService";
+import { getShops } from "../db/shopService";
+import { getBookers } from "../db/bookerService";
+import { getOrders } from "../db/orderService";
+import { getVendors } from "../db/vendorService";
 import { initDb } from "../db/client";
 
 export function useAppData(isAuthenticated: boolean) {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [categories, setCategories] = useState<CategoryRecord[]>([]);
-  const [customersCount, setCustomersCount] = useState<number>(0);
-  const [activeRepairsCount, setActiveRepairsCount] = useState<number>(0);
-  const [payablesCount, setPayablesCount] = useState<number>(0);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [shops, setShops] = useState<RetailShop[]>([]);
+  const [bookers, setBookers] = useState<OrderBooker[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const fetchItems = useCallback(async (showLoader = false) => {
+  const fetchAppData = useCallback(async (showLoader = false) => {
     try {
       if (showLoader) setIsLoading(true);
       await initDb();
       try {
-        const records = await getInventoryItems();
-        setItems(records);
+        const prodList = await getProducts();
+        setProducts(prodList);
       } catch (e) {
-        console.error("Failed to load inventory:", e);
+        console.error("Failed to load products:", e);
       }
       try {
-        const count = await getCustomersCount();
-        setCustomersCount(count);
+        const shopList = await getShops();
+        setShops(shopList);
       } catch (e) {
-        console.error("Failed to load customers count:", e);
+        console.error("Failed to load shops:", e);
       }
       try {
-        const count = await getActiveRepairsCount();
-        setActiveRepairsCount(count);
+        const bookerList = await getBookers();
+        setBookers(bookerList);
       } catch (e) {
-        console.error("Failed to load repair tickets count:", e);
+        console.error("Failed to load bookers:", e);
       }
       try {
-        const pSummary = await getPayablesSummary();
-        setPayablesCount(pSummary.activeSuppliersCount);
+        const orderList = await getOrders();
+        setOrders(orderList);
       } catch (e) {
-        console.error("Failed to load payables summary:", e);
+        console.error("Failed to load orders:", e);
       }
       try {
-        const cats = await getCategories();
-        setCategories(cats);
+        const vendorList = await getVendors();
+        setVendors(vendorList);
       } catch (e) {
-        console.error("Failed to load categories:", e);
+        console.error("Failed to load vendors:", e);
       }
     } catch (err) {
-      console.error("Database error:", err);
+      console.error("Database initialization error:", err);
     } finally {
       setIsLoading(false);
     }
@@ -58,21 +58,22 @@ export function useAppData(isAuthenticated: boolean) {
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchItems(true);
+      fetchAppData(true);
     }
-  }, [isAuthenticated, fetchItems]);
+  }, [isAuthenticated, fetchAppData]);
 
-  const lowStockCount = items.filter((i) => i.quantity <= 5).length;
+  const lowStockCount = products.filter((p) => p.currentStock <= p.minStockAlert).length;
+  const pendingOrdersCount = orders.filter((o) => o.status === "PENDING").length;
 
   return {
-    items,
-    categories,
-    categoriesCount: categories.length,
-    customersCount,
-    activeRepairsCount,
-    payablesCount,
+    products,
+    shops,
+    bookers,
+    orders,
+    vendors,
     lowStockCount,
+    pendingOrdersCount,
     isLoading,
-    fetchItems,
+    fetchAppData,
   };
 }

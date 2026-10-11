@@ -1,5 +1,5 @@
 import React from "react";
-import { Sparkles, PanelLeftClose } from "lucide-react";
+import { Store, PanelLeftClose } from "lucide-react";
 
 interface SidebarBrandProps {
   isExpanded: boolean;
@@ -17,15 +17,18 @@ export const SidebarBrand: React.FC<SidebarBrandProps> = ({ isExpanded, toggleSi
         onClick={() => !isExpanded && toggleSidebar()}
         className="flex items-center gap-3 cursor-pointer select-none group"
       >
-        <div className="flex size-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-theme-xs group-hover:scale-105 transition-transform shrink-0">
-          <Sparkles className="size-5" />
+        <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-blue-600 text-white shadow-md shadow-brand-500/20 group-hover:scale-105 transition-transform shrink-0">
+          <Store className="size-5" />
         </div>
         {isExpanded && (
           <div className="flex flex-col truncate">
-            <span className="text-base font-bold tracking-tight text-gray-900 dark:text-white">
-              ComputerShop<span className="text-brand-500">OS</span>
+            <span className="text-base font-extrabold tracking-tight text-gray-900 dark:text-white">
+              Smart Market <span className="text-brand-500">OS</span>
             </span>
-            <span className="text-[11px] font-medium text-gray-400">Pro Store Edition</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-medium text-gray-400">Wholesale ERP v1.0</span>
+            </div>
           </div>
         )}
       </div>

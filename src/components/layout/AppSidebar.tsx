@@ -1,5 +1,17 @@
 import React from "react";
-import { LayoutDashboard, Boxes, ShoppingCart, FileText, Wrench, Users, Settings, ArrowLeftRight, BarChart3, Building2, Receipt, Tags, Banknote } from "lucide-react";
+import {
+  CreditCard,
+  Package,
+  Truck,
+  Boxes,
+  Building2,
+  DollarSign,
+  Users,
+  Store,
+  BarChart3,
+  ShieldCheck,
+  Settings,
+} from "lucide-react";
 import { useSidebar } from "../../context/SidebarContext";
 import { NavTab } from "./navTypes";
 import { SidebarBrand } from "./SidebarBrand";
@@ -11,39 +23,63 @@ export type { NavTab };
 interface AppSidebarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
-  inventoryCount: number;
-  categoriesCount?: number;
+  productsCount: number;
   lowStockCount?: number;
-  activeRepairsCount?: number;
-  customersCount?: number;
-  payablesCount?: number;
+  pendingOrdersCount?: number;
+  shopsCount?: number;
+  bookersCount?: number;
+  vendorsCount?: number;
 }
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
   activeTab,
   onSelectTab,
-  inventoryCount,
-  categoriesCount = 0,
+  productsCount,
   lowStockCount = 0,
-  activeRepairsCount = 0,
-  customersCount = 0,
-  payablesCount = 0,
+  pendingOrdersCount = 0,
+  shopsCount = 0,
+  vendorsCount = 0,
 }) => {
   const { isExpanded, toggleSidebar, isMobileOpen, closeMobileSidebar } = useSidebar();
 
   const navItems: NavItemConfig[] = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "sales", label: "Sales", icon: ShoppingCart, hotkey: "F2" },
-    { id: "payables", label: "Purchases", icon: Building2, badge: payablesCount > 0 ? `${payablesCount}` : undefined, badgeType: "warning" },
-    { id: "doc-generator", label: "Documents", icon: FileText, hotkey: "F4" },
-    { id: "inventory", label: "Inventory", icon: Boxes, badge: lowStockCount > 0 ? `${lowStockCount} Low` : `${inventoryCount}`, badgeType: lowStockCount > 0 ? "warning" : "neutral" },
-    { id: "categories", label: "Categories", icon: Tags, badge: categoriesCount > 0 ? `${categoriesCount}` : undefined, badgeType: "neutral" },
-    { id: "repairs", label: "Repairs", icon: Wrench, badge: activeRepairsCount > 0 ? `${activeRepairsCount}` : undefined, badgeType: "brand" },
-    { id: "adjustments", label: "Trade-Ins", icon: ArrowLeftRight },
-    { id: "expenses", label: "Expenses", icon: Receipt },
-    { id: "salaries", label: "Salaries", icon: Banknote },
-    { id: "customers", label: "Customers", icon: Users, badge: customersCount > 0 ? `${customersCount}` : undefined, badgeType: "neutral" },
-    { id: "reports", label: "Reports", icon: BarChart3 },
+    { id: "billing", label: "Billing POS", icon: CreditCard, hotkey: "F1" },
+    {
+      id: "orders",
+      label: "Orders",
+      icon: Package,
+      hotkey: "F2",
+      badge: pendingOrdersCount > 0 ? `${pendingOrdersCount} Pending` : undefined,
+      badgeType: pendingOrdersCount > 0 ? "warning" : "neutral",
+    },
+    { id: "dispatch", label: "Dispatch Slips", icon: Truck, hotkey: "F3" },
+    {
+      id: "inventory",
+      label: "Inventory",
+      icon: Boxes,
+      hotkey: "F4",
+      badge: lowStockCount > 0 ? `${lowStockCount} Low` : `${productsCount}`,
+      badgeType: lowStockCount > 0 ? "warning" : "neutral",
+    },
+    {
+      id: "shops",
+      label: "Shops & Khata",
+      icon: Store,
+      hotkey: "F5",
+      badge: shopsCount > 0 ? `${shopsCount}` : undefined,
+      badgeType: "neutral",
+    },
+    { id: "bookers", label: "Order Bookers", icon: Users },
+    {
+      id: "vendors",
+      label: "Vendors",
+      icon: Building2,
+      badge: vendorsCount > 0 ? `${vendorsCount}` : undefined,
+      badgeType: "neutral",
+    },
+    { id: "expenses", label: "Expenses", icon: DollarSign },
+    { id: "reports", label: "Profit Reports", icon: BarChart3 },
+    { id: "audit", label: "Audit Ledger", icon: ShieldCheck },
     { id: "settings", label: "Settings", icon: Settings },
   ];
 
@@ -62,7 +98,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           <div className="flex-1 overflow-y-auto px-3.5 py-4 space-y-1 scrollbar-thin">
             {isExpanded && (
               <p className="px-3 pb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                Core Modules
+                Wholesale Modules
               </p>
             )}
             {navItems.map((item) => (
@@ -72,7 +108,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 isActive={activeTab === item.id}
                 isExpanded={isExpanded}
                 onClick={() => {
-                  onSelectTab(item.id);
+                  onSelectTab(item.id as NavTab);
                   closeMobileSidebar();
                 }}
               />
