@@ -52,6 +52,9 @@ function AppContent() {
     <AppLayout
       activeTab={activeTab}
       onSelectTab={setActiveTab}
+      products={products}
+      shops={shops}
+      vendors={vendors}
       productsCount={products.length}
       lowStockCount={lowStockCount}
       pendingOrdersCount={pendingOrdersCount}

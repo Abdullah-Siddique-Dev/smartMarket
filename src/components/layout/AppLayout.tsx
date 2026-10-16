@@ -2,10 +2,14 @@ import React from "react";
 import { AppSidebar, NavTab } from "./AppSidebar";
 import { AppHeader } from "./AppHeader";
 import { useSidebar } from "../../context/SidebarContext";
+import { Product, RetailShop, Vendor } from "../../db/schema";
 
 interface AppLayoutProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
+  products?: Product[];
+  shops?: RetailShop[];
+  vendors?: Vendor[];
   productsCount: number;
   lowStockCount?: number;
   pendingOrdersCount?: number;
@@ -19,6 +23,9 @@ interface AppLayoutProps {
 export const AppLayout: React.FC<AppLayoutProps> = ({
   activeTab,
   onSelectTab,
+  products = [],
+  shops = [],
+  vendors = [],
   productsCount,
   lowStockCount,
   pendingOrdersCount,
@@ -47,7 +54,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           isExpanded ? "lg:pl-[280px]" : "lg:pl-[88px]"
         }`}
       >
-        <AppHeader onOpenQuickSale={onQuickSale} onLockSession={onLockSession} />
+        <AppHeader
+          products={products}
+          shops={shops}
+          vendors={vendors}
+          onNavigateTab={onSelectTab}
+          onOpenQuickSale={onQuickSale}
+          onLockSession={onLockSession}
+        />
 
         <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto">
           {children}
