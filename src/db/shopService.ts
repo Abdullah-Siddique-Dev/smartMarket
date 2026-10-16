@@ -7,9 +7,16 @@ export async function getShops(): Promise<RetailShop[]> {
 
   if (isTauri && sqlDb) {
     try {
-      const rows = await sqlDb.select<any[]>(
-        "SELECT * FROM retail_shops ORDER BY shop_name ASC"
-      );
+      let rows: any[];
+      try {
+        rows = await sqlDb.select<any[]>(
+          "SELECT * FROM retail_shops WHERE is_active = 1 OR is_active IS NULL ORDER BY shop_name ASC"
+        );
+      } catch {
+        rows = await sqlDb.select<any[]>(
+          "SELECT * FROM retail_shops ORDER BY shop_name ASC"
+        );
+      }
       return rows.map((r) => ({
         id: Number(r.id),
         shopName: String(r.shop_name || ""),
@@ -18,6 +25,7 @@ export async function getShops(): Promise<RetailShop[]> {
         address: r.address ? String(r.address) : null,
         outstandingBalance: Number(r.outstanding_balance ?? 0),
         creditLimit: Number(r.credit_limit ?? 0),
+        isActive: r.is_active !== undefined ? Number(r.is_active) : 1,
         createdAt: String(r.created_at || ""),
       }));
     } catch (err) {
@@ -25,7 +33,7 @@ export async function getShops(): Promise<RetailShop[]> {
     }
   }
 
-  return memoryStore.shops;
+  return memoryStore.shops.filter((s) => s.isActive !== 0);
 }
 
 export async function addShop(shop: Omit<NewRetailShop, "id" | "createdAt" | "outstandingBalance">): Promise<number> {
@@ -58,10 +66,31 @@ export async function addShop(shop: Omit<NewRetailShop, "id" | "createdAt" | "ou
     address: shop.address?.trim() || null,
     outstandingBalance: 0,
     creditLimit: Number(shop.creditLimit) || 0,
+    isActive: 1,
     createdAt: now,
   };
   memoryStore.shops.push(newShop);
   return newId;
+}
+
+export async function deleteShop(id: number): Promise<void> {
+  const isTauri = isTauriEnvironment();
+  const sqlDb = await getSqlDb();
+
+  if (isTauri && sqlDb) {
+    try {
+      await sqlDb.execute("UPDATE retail_shops SET is_active = 0 WHERE id = $1", [id]);
+    } catch {
+      await sqlDb.execute("DELETE FROM retail_shops WHERE id = $1", [id]);
+    }
+    return;
+  }
+
+  const idx = memoryStore.shops.findIndex((s) => s.id === id);
+  if (idx !== -1) {
+    memoryStore.shops[idx].isActive = 0;
+    memoryStore.shops.splice(idx, 1);
+  }
 }
 
 export async function updateShop(id: number, shop: Partial<RetailShop>): Promise<void> {

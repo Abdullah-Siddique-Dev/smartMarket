@@ -126,6 +126,7 @@ export const retailShops = sqliteTable("retail_shops", {
   address: text("address"),
   outstandingBalance: real("outstanding_balance").notNull().default(0),
   creditLimit: real("credit_limit").notNull().default(0),
+  isActive: integer("is_active").notNull().default(1),
   createdAt: text("created_at").notNull(),
 });
 

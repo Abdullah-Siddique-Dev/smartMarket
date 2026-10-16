@@ -5,9 +5,10 @@ import {
   Search,
   DollarSign,
   X,
+  Trash2,
 } from "lucide-react";
 import { RetailShop } from "../db/schema";
-import { addShop, recordShopPayment, getShopLedger } from "../db/shopService";
+import { addShop, recordShopPayment, getShopLedger, deleteShop } from "../db/shopService";
 import { PageHeader } from "../components/ui/PageHeader";
 
 interface ShopsPageProps {
@@ -101,6 +102,23 @@ export const ShopsPage: React.FC<ShopsPageProps> = ({ shops, onRefresh }) => {
     const data = await getShopLedger(shop.id);
     setLedgerEntries(data || []);
     setIsLedgerOpen(true);
+  };
+
+  const handleDeleteShop = async (shop: RetailShop) => {
+    const confirmMsg =
+      shop.outstandingBalance > 0
+        ? `Warning: Shop "${shop.shopName}" has an outstanding balance of Rs. ${shop.outstandingBalance.toLocaleString()}.\n\nAre you sure you want to delete this shop?`
+        : `Are you sure you want to delete shop "${shop.shopName}"?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await deleteShop(shop.id);
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      console.error("Failed to delete shop:", err);
+      alert("Failed to delete shop. Please try again.");
+    }
   };
 
   return (
@@ -215,6 +233,15 @@ export const ShopsPage: React.FC<ShopsPageProps> = ({ shops, onRefresh }) => {
                           className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
                         >
                           Ledger
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteShop(s)}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 transition-colors cursor-pointer"
+                          title="Delete Shop"
+                        >
+                          <Trash2 className="size-3.5 inline mr-1" />
+                          Delete
                         </button>
                       </div>
                     </td>

@@ -112,6 +112,7 @@ const initialShops: schema.RetailShop[] = [
     address: "Main Market, Sector G-9",
     outstandingBalance: 35000,
     creditLimit: 100000,
+    isActive: 1,
     createdAt: new Date().toISOString(),
   },
   {
@@ -122,6 +123,7 @@ const initialShops: schema.RetailShop[] = [
     address: "Shop #14, Bilal Chowk",
     outstandingBalance: 18500,
     creditLimit: 50000,
+    isActive: 1,
     createdAt: new Date().toISOString(),
   },
   {
@@ -132,6 +134,7 @@ const initialShops: schema.RetailShop[] = [
     address: "Commercial Market Road",
     outstandingBalance: 0,
     creditLimit: 150000,
+    isActive: 1,
     createdAt: new Date().toISOString(),
   },
 ];
@@ -277,6 +280,7 @@ export async function initDb(): Promise<void> {
           address TEXT,
           outstanding_balance REAL NOT NULL DEFAULT 0.0,
           credit_limit REAL NOT NULL DEFAULT 0.0,
+          is_active INTEGER NOT NULL DEFAULT 1,
           created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )`,
         `CREATE TABLE IF NOT EXISTS order_bookers (
@@ -454,6 +458,9 @@ export async function initDb(): Promise<void> {
       for (const idx of indexes) {
         try { await sqlDb.execute(idx); } catch {}
       }
+
+      // Migrations for backward compatibility
+      try { await sqlDb.execute("ALTER TABLE retail_shops ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;"); } catch {}
 
       // Seed default user
       try {

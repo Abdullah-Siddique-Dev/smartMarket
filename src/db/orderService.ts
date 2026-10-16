@@ -205,3 +205,34 @@ export async function updateOrderStatus(id: number, status: OrderStatus): Promis
   const o = memoryStore.orders.find((ord) => ord.id === id);
   if (o) o.status = status;
 }
+
+export async function deleteOrder(id: number): Promise<void> {
+  const isTauri = isTauriEnvironment();
+  const sqlDb = await getSqlDb();
+
+  if (isTauri && sqlDb) {
+    try {
+      // 1. Unlink any bills referencing this order
+      try {
+        await sqlDb.execute("UPDATE bills SET order_id = NULL WHERE order_id = $1", [id]);
+      } catch {}
+
+      // 2. Delete order line items
+      await sqlDb.execute("DELETE FROM order_items WHERE order_id = $1", [id]);
+
+      // 3. Delete order record
+      await sqlDb.execute("DELETE FROM orders WHERE id = $1", [id]);
+    } catch (err) {
+      console.error("Failed to delete order in SQLite:", err);
+      throw err;
+    }
+    return;
+  }
+
+  // Memory fallback
+  memoryStore.orderItems = memoryStore.orderItems.filter((it) => it.orderId !== id);
+  const idx = memoryStore.orders.findIndex((o) => o.id === id);
+  if (idx !== -1) {
+    memoryStore.orders.splice(idx, 1);
+  }
+}

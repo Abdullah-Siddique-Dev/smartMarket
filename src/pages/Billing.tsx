@@ -741,9 +741,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({
 
       {/* Bill Receipt Preview Modal */}
       {isPreviewOpen && createdBill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-lg w-full p-6 shadow-theme-xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in print:static print:bg-white print:p-0 print:m-0">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-lg w-full p-6 shadow-theme-xl space-y-4 max-h-[90vh] overflow-y-auto print:border-none print:shadow-none print:p-0 print:m-0 print:max-w-none print:bg-white">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800 print:hidden">
               <div className="flex items-center gap-2">
                 <Printer className="size-5 text-brand-600" />
                 <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
@@ -762,7 +762,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({
             {/* Printable Receipt Paper */}
             <div
               id="printable-receipt"
-              className="bg-white text-gray-900 p-6 rounded-2xl border border-gray-200 shadow-xs space-y-4 font-sans"
+              className="bg-white text-gray-900 p-6 rounded-2xl border border-gray-200 shadow-xs space-y-4 font-sans print:border-none print:shadow-none print:p-0"
             >
               <div className="text-center pb-3 border-b border-gray-200">
                 <h2 className="text-lg font-black tracking-tight text-gray-900">
@@ -847,7 +847,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({
             </div>
 
             {/* Modal Actions */}
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3 pt-2 print:hidden">
               <button
                 type="button"
                 onClick={() => window.print()}

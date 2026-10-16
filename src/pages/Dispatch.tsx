@@ -339,8 +339,11 @@ export const DispatchPage: React.FC<DispatchPageProps> = ({
 
       {/* Inspect / Reconcile Modal */}
       {selectedSlip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-lg w-full p-6 shadow-theme-xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in print:static print:bg-white print:p-0 print:m-0">
+          <div
+            id="printable-dispatch-slip"
+            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-lg w-full p-6 shadow-theme-xl space-y-4 print:border-none print:shadow-none print:p-0 print:m-0 print:max-w-none print:bg-white"
+          >
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
               <div>
                 <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
@@ -353,7 +356,7 @@ export const DispatchPage: React.FC<DispatchPageProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedSlip(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 print:hidden"
               >
                 <X className="size-5" />
               </button>
@@ -409,7 +412,7 @@ export const DispatchPage: React.FC<DispatchPageProps> = ({
               </table>
             </div>
 
-            <div className="flex gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <div className="flex gap-3 pt-3 border-t border-gray-100 dark:border-gray-800 print:hidden">
               <button
                 type="button"
                 onClick={() => window.print()}

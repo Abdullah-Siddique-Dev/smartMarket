@@ -12,9 +12,10 @@ import {
   User,
   Store,
   X,
+  Trash2,
 } from "lucide-react";
 import { Order, OrderStatus, OrderSource, Product, RetailShop, OrderBooker } from "../db/schema";
-import { getOrders, getOrderById, createOrder, updateOrderStatus } from "../db/orderService";
+import { getOrders, getOrderById, createOrder, updateOrderStatus, deleteOrder } from "../db/orderService";
 import { PageHeader } from "../components/ui/PageHeader";
 
 interface OrdersPageProps {
@@ -90,6 +91,24 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
     }
     if (onNavigateToBilling) {
       onNavigateToBilling(orderToConvert);
+    }
+  };
+
+  const handleDeleteOrder = async (ord: Order) => {
+    const confirmMsg =
+      ord.status === "BILLED"
+        ? `Order #${ord.orderNumber} is already marked as BILLED.\n\nAre you sure you want to delete this order?`
+        : `Are you sure you want to delete Wholesale Order #${ord.orderNumber}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await deleteOrder(ord.id);
+      await fetchOrdersData();
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      console.error("Failed to delete order:", err);
+      alert("Failed to delete order. Please try again.");
     }
   };
 
@@ -316,9 +335,18 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenDetail(ord.id)}
-                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors cursor-pointer"
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors cursor-pointer mr-1.5"
                       >
                         Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOrder(ord)}
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 transition-colors cursor-pointer"
+                        title="Delete Order"
+                      >
+                        <Trash2 className="size-3.5 inline mr-1" />
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -614,6 +642,27 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const toDelete = viewOrder;
+                  setViewOrder(null);
+                  handleDeleteOrder(toDelete);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="size-3.5" /> Delete Order
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewOrder(null)}
+                className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
