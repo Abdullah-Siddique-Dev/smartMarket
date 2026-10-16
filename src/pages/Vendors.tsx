@@ -5,9 +5,11 @@ import {
   Search,
   X,
   CreditCard,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Vendor } from "../db/schema";
-import { addVendor, recordVendorPayment } from "../db/vendorService";
+import { addVendor, updateVendor, deleteVendor, recordVendorPayment } from "../db/vendorService";
 import { PageHeader } from "../components/ui/PageHeader";
 
 interface VendorsPageProps {
@@ -18,8 +20,10 @@ interface VendorsPageProps {
 export const VendorsPage: React.FC<VendorsPageProps> = ({ vendors, onRefresh }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPayOpen, setIsPayOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
 
   // Add form
   const [name, setName] = useState("");
@@ -29,6 +33,15 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ vendors, onRefresh }) 
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Edit form
+  const [editName, setEditName] = useState("");
+  const [editContactPerson, setEditContactPerson] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editNotes, setEditNotes] = useState("");
 
   // Payment form
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
@@ -103,6 +116,60 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ vendors, onRefresh }) 
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error("Failed to pay vendor:", err);
+    }
+  };
+
+  const handleOpenEdit = (v: Vendor) => {
+    setEditingVendor(v);
+    setEditName(v.name);
+    setEditContactPerson(v.contactPerson || "");
+    setEditPhone(v.phone || "");
+    setEditEmail(v.email || "");
+    setEditCity(v.city || "");
+    setEditAddress(v.address || "");
+    setEditNotes(v.notes || "");
+    setIsEditOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVendor || !editName.trim()) return;
+
+    try {
+      await updateVendor(editingVendor.id, {
+        name: editName.trim(),
+        contactPerson: editContactPerson.trim() || null,
+        phone: editPhone.trim() || null,
+        email: editEmail.trim() || null,
+        city: editCity.trim() || null,
+        address: editAddress.trim() || null,
+        notes: editNotes.trim() || null,
+      });
+
+      setIsEditOpen(false);
+      setEditingVendor(null);
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      console.error("Failed to update vendor:", err);
+      alert("Failed to update supplier details.");
+    }
+  };
+
+  const handleDeleteVendor = async (v: Vendor) => {
+    const bal = v.totalPurchases - v.totalPaid;
+    const confirmMsg =
+      bal > 0
+        ? `Warning: Supplier "${v.name}" has an outstanding payable balance of Rs. ${bal.toLocaleString()}.\n\nAre you sure you want to delete this supplier?`
+        : `Are you sure you want to delete supplier "${v.name}"?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await deleteVendor(v.id);
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      console.error("Failed to delete supplier:", err);
+      alert("Failed to delete supplier. Please try again.");
     }
   };
 
@@ -200,17 +267,37 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ vendors, onRefresh }) 
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedVendor(v);
-                            setPaymentAmount(Math.max(0, bal));
-                            setIsPayOpen(true);
-                          }}
-                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 transition-colors"
-                        >
-                          Record Payment
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedVendor(v);
+                              setPaymentAmount(Math.max(0, bal));
+                              setIsPayOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 transition-colors cursor-pointer"
+                          >
+                            Record Payment
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(v)}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors cursor-pointer flex items-center gap-1"
+                            title="Edit Supplier"
+                          >
+                            <Pencil className="size-3" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteVendor(v)}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 transition-colors cursor-pointer flex items-center gap-1"
+                            title="Delete Supplier"
+                          >
+                            <Trash2 className="size-3" />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -432,6 +519,147 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ vendors, onRefresh }) 
                   className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-theme-xs cursor-pointer"
                 >
                   Confirm Payment
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Supplier Modal */}
+      {isEditOpen && editingVendor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-md w-full p-6 shadow-theme-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <Building2 className="size-5 text-brand-600" />
+                <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                  Edit Wholesale Supplier
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditOpen(false);
+                  setEditingVendor(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Supplier / Company Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="e.g. Premier Food Distributors"
+                  className="w-full text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Contact Person
+                  </label>
+                  <input
+                    type="text"
+                    value={editContactPerson}
+                    onChange={(e) => setEditContactPerson(e.target.value)}
+                    placeholder="e.g. Shahid Rafique"
+                    className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Phone / Mobile
+                  </label>
+                  <input
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="0300-1234567"
+                    className="w-full text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    City / Hub
+                  </label>
+                  <input
+                    type="text"
+                    value={editCity}
+                    onChange={(e) => setEditCity(e.target.value)}
+                    placeholder="Lahore"
+                    className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="sales@vendor.com"
+                    className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Warehouse / Depot Address
+                </label>
+                <input
+                  type="text"
+                  placeholder="Plot 42, Quaid-e-Azam Industrial Estate"
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Notes
+                </label>
+                <input
+                  type="text"
+                  placeholder="Terms, delivery days, etc."
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditOpen(false);
+                    setEditingVendor(null);
+                  }}
+                  className="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-theme-xs cursor-pointer"
+                >
+                  Update Supplier
                 </button>
               </div>
             </form>

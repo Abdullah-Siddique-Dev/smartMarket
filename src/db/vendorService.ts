@@ -126,6 +126,25 @@ export async function updateVendor(id: number, vendor: Partial<Vendor>): Promise
   }
 }
 
+export async function deleteVendor(id: number): Promise<void> {
+  const isTauri = isTauriEnvironment();
+  const sqlDb = await getSqlDb();
+
+  if (isTauri && sqlDb) {
+    try {
+      await sqlDb.execute("UPDATE vendors SET is_active = 0 WHERE id = $1", [id]);
+    } catch {
+      await sqlDb.execute("DELETE FROM vendors WHERE id = $1", [id]);
+    }
+    return;
+  }
+
+  const v = memoryStore.vendors.find((ven) => ven.id === id);
+  if (v) v.isActive = 0;
+  const idx = memoryStore.vendors.findIndex((ven) => ven.id === id);
+  if (idx !== -1) memoryStore.vendors.splice(idx, 1);
+}
+
 export async function recordVendorPayment(data: {
   vendorId: number;
   amount: number;
