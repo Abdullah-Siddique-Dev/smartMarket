@@ -70,6 +70,41 @@ export async function addExpense(expense: Omit<NewExpense, "id" | "createdAt">):
   return newId;
 }
 
+export async function updateExpense(id: number, expense: Partial<Expense>): Promise<void> {
+  const isTauri = isTauriEnvironment();
+  const sqlDb = await getSqlDb();
+
+  if (isTauri && sqlDb) {
+    await sqlDb.execute(
+      `UPDATE expenses SET
+         expense_date = COALESCE($1, expense_date),
+         category = COALESCE($2, category),
+         amount = COALESCE($3, amount),
+         description = COALESCE($4, description),
+         payment_method = COALESCE($5, payment_method)
+       WHERE id = $6`,
+      [
+        expense.expenseDate || null,
+        expense.category || null,
+        expense.amount !== undefined ? Number(expense.amount) : null,
+        expense.description ? expense.description.trim() : null,
+        expense.paymentMethod || null,
+        id,
+      ]
+    );
+    return;
+  }
+
+  const idx = memoryStore.expenses.findIndex((e) => e.id === id);
+  if (idx !== -1) {
+    memoryStore.expenses[idx] = {
+      ...memoryStore.expenses[idx],
+      ...expense,
+      amount: expense.amount !== undefined ? Number(expense.amount) : memoryStore.expenses[idx].amount,
+    };
+  }
+}
+
 export async function deleteExpense(id: number): Promise<void> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();

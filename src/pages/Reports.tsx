@@ -4,14 +4,12 @@ import {
   DollarSign,
   Package,
   Award,
-  ArrowDownRight,
   Store,
   Building2,
   Calculator,
   Sparkles,
 } from "lucide-react";
 import { getProfitKPIs, getTopProducts, getBookerLeaderboard, ProfitKPIs } from "../db/reportService";
-import { getExpenseSummary } from "../db/expenseService";
 import { Product } from "../db/schema";
 import { PageHeader } from "../components/ui/PageHeader";
 
@@ -23,7 +21,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
   const [kpis, setKpis] = useState<ProfitKPIs | null>(null);
   const [topProducts, setTopProducts] = useState<any[]>([]);
   const [bookersLeaderboard, setBookersLeaderboard] = useState<any[]>([]);
-  const [monthlyExpenses, setMonthlyExpenses] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
 
   // Profit Simulator State
@@ -36,16 +33,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
     async function loadReports() {
       setIsLoading(true);
       try {
-        const [k, p, b, exp] = await Promise.all([
+        const [k, p, b] = await Promise.all([
           getProfitKPIs(),
           getTopProducts(6),
           getBookerLeaderboard(),
-          getExpenseSummary(),
         ]);
         setKpis(k);
         setTopProducts(p);
         setBookersLeaderboard(b);
-        setMonthlyExpenses(exp.totalThisMonth);
       } catch (err) {
         console.error("Failed to load reports:", err);
       } finally {
@@ -91,14 +86,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
   }, [selectedSimProduct, products, simQty, simCostPrice]);
 
   const simGrossProfit = simRevenue - simCost;
-  const simNetProfit = simGrossProfit - monthlyExpenses;
   const simMarginPct = simRevenue > 0 ? Math.round((simGrossProfit / simRevenue) * 100) : 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Profit Analytics & Performance Dashboard"
-        description="Real-time wholesale profitability, gross margins, expense deductions and sales rep performance"
+        description="Real-time wholesale profitability, gross margins and sales rep performance"
       />
 
       {isLoading ? (
@@ -123,40 +117,40 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
             </div>
           </div>
 
-          {/* Gross Margin */}
+          {/* Procurement Cost */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-theme-xs space-y-2">
             <div className="flex items-center justify-between text-gray-400">
-              <span className="text-[10px] uppercase font-bold tracking-wider">Gross Profit</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider">Procurement Cost</span>
+              <Package className="size-4 text-blue-500" />
+            </div>
+            <span className="text-2xl font-black font-mono text-gray-900 dark:text-gray-100 block">
+              Rs. {kpis.totalCost.toLocaleString()}
+            </span>
+            <div className="text-[11px] text-gray-500 flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
+              <span>Cost of Sold Goods</span>
+              <span className="font-bold font-mono">Wholesale Basis</span>
+            </div>
+          </div>
+
+          {/* Gross Trading Profit */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-theme-xs space-y-2">
+            <div className="flex items-center justify-between text-gray-400">
+              <span className="text-[10px] uppercase font-bold tracking-wider">Gross Trading Profit</span>
               <TrendingUp className="size-4 text-emerald-500" />
             </div>
             <span className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 block">
               Rs. {kpis.grossProfit.toLocaleString()}
             </span>
             <div className="text-[11px] text-gray-500 flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
-              <span>Procurement Cost</span>
-              <span className="font-bold font-mono">Rs. {kpis.totalCost.toLocaleString()}</span>
+              <span>Trading Markup</span>
+              <span className="font-bold font-mono text-emerald-600">Active Stock</span>
             </div>
           </div>
 
-          {/* Operational Overheads */}
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-theme-xs space-y-2">
-            <div className="flex items-center justify-between text-gray-400">
-              <span className="text-[10px] uppercase font-bold tracking-wider">Expenses & Discounts</span>
-              <ArrowDownRight className="size-4 text-rose-500" />
-            </div>
-            <span className="text-2xl font-black font-mono text-rose-600 dark:text-rose-400 block">
-              Rs. {(kpis.totalExpenses + kpis.totalDiscounts).toLocaleString()}
-            </span>
-            <div className="text-[11px] text-gray-500 flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
-              <span>Operating Expenses</span>
-              <span className="font-bold font-mono">Rs. {kpis.totalExpenses.toLocaleString()}</span>
-            </div>
-          </div>
-
-          {/* Net Profit */}
+          {/* Net Clean Profit */}
           <div className="bg-gradient-to-br from-brand-600 to-blue-700 text-white p-5 rounded-2xl shadow-md shadow-brand-500/20 space-y-2">
             <div className="flex items-center justify-between text-blue-100">
-              <span className="text-[10px] uppercase font-bold tracking-wider">Net Clean Profit</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider">Net Sales Profit</span>
               <Award className="size-4" />
             </div>
             <span className="text-3xl font-black font-mono block">
@@ -185,7 +179,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
                 </span>
               </h3>
               <p className="text-[11px] text-gray-400">
-                Simulate potential earnings on available warehouse stock minus operational expenses
+                Simulate potential earnings and gross margin on available warehouse stock
               </p>
             </div>
           </div>
@@ -279,30 +273,28 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ products = [] }) => {
             </span>
           </div>
 
+          <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800">
+            <span className="text-[10px] font-bold text-gray-400 uppercase block">Projected Cost</span>
+            <span className="text-base font-black font-mono text-gray-900 dark:text-gray-100">
+              Rs. {simCost.toLocaleString()}
+            </span>
+          </div>
+
           <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40">
             <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase block">
-              Projected Gross Profit ({simMarginPct}%)
+              Projected Gross Profit
             </span>
             <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">
               +Rs. {simGrossProfit.toLocaleString()}
             </span>
           </div>
 
-          <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40">
-            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase block">
-              Monthly Overhead Expenses
-            </span>
-            <span className="text-base font-black font-mono text-rose-600 dark:text-rose-400">
-              -Rs. {monthlyExpenses.toLocaleString()}
-            </span>
-          </div>
-
           <div className="p-3 rounded-xl bg-brand-50/80 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800">
             <span className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase block">
-              Net Projected Clean Profit
+              Projected Margin
             </span>
-            <span className={`text-base font-black font-mono ${simNetProfit >= 0 ? "text-brand-600 dark:text-brand-400" : "text-rose-600 dark:text-rose-400"}`}>
-              Rs. {simNetProfit.toLocaleString()}
+            <span className="text-base font-black font-mono text-brand-600 dark:text-brand-400">
+              +{simMarginPct}%
             </span>
           </div>
         </div>

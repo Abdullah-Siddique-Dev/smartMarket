@@ -4,12 +4,14 @@ import {
   Search,
   Receipt,
   Trash2,
+  Pencil,
   X,
 } from "lucide-react";
 import { Expense, EXPENSE_CATEGORIES, ExpenseCategory } from "../db/schema";
 import {
   getExpenses,
   addExpense,
+  updateExpense,
   deleteExpense,
   getExpenseSummary,
 } from "../db/expenseService";
@@ -22,13 +24,22 @@ export const ExpensesPage: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<"ALL" | "TODAY" | "THIS_MONTH">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
-  // Form states
+  // Form states (Add)
   const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [category, setCategory] = useState<ExpenseCategory>("FUEL_TRANSPORT");
   const [amount, setAmount] = useState<number>(0);
   const [description, setDescription] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
+
+  // Form states (Edit)
+  const [editDate, setEditDate] = useState("");
+  const [editCategory, setEditCategory] = useState<ExpenseCategory>("FUEL_TRANSPORT");
+  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editDescription, setEditDescription] = useState("");
+  const [editPaymentMethod, setEditPaymentMethod] = useState("CASH");
 
   const fetchData = async () => {
     try {
@@ -79,6 +90,37 @@ export const ExpensesPage: React.FC = () => {
       fetchData();
     } catch (err) {
       console.error("Failed to record expense:", err);
+    }
+  };
+
+  const handleOpenEdit = (exp: Expense) => {
+    setEditingExpense(exp);
+    setEditDate(exp.expenseDate);
+    setEditCategory(exp.category as ExpenseCategory);
+    setEditAmount(exp.amount);
+    setEditDescription(exp.description);
+    setEditPaymentMethod(exp.paymentMethod);
+    setIsEditOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExpense || !editDescription.trim() || editAmount <= 0) return;
+
+    try {
+      await updateExpense(editingExpense.id, {
+        expenseDate: editDate,
+        category: editCategory,
+        amount: editAmount,
+        description: editDescription,
+        paymentMethod: editPaymentMethod,
+      });
+
+      setIsEditOpen(false);
+      setEditingExpense(null);
+      fetchData();
+    } catch (err) {
+      console.error("Failed to update expense:", err);
     }
   };
 
@@ -215,13 +257,24 @@ export const ExpensesPage: React.FC = () => {
                       Rs. {exp.amount.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(exp.id)}
-                        className="text-gray-400 hover:text-rose-500 transition-colors"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(exp)}
+                          className="p-1 text-gray-400 hover:text-brand-500 transition-colors cursor-pointer"
+                          title="Edit Expense"
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(exp.id)}
+                          className="p-1 text-gray-400 hover:text-rose-500 transition-colors cursor-pointer"
+                          title="Delete Expense"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -340,6 +393,128 @@ export const ExpensesPage: React.FC = () => {
                   className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-theme-xs cursor-pointer"
                 >
                   Save Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Expense Modal */}
+      {isEditOpen && editingExpense && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl max-w-md w-full p-6 shadow-theme-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <Receipt className="size-5 text-brand-600" />
+                <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
+                  Edit Expense
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditOpen(false);
+                  setEditingExpense(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Expense Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                    Category *
+                  </label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as ExpenseCategory)}
+                    className="w-full text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                  >
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c.replace("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Amount (Rs.) *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={editAmount || ""}
+                  onChange={(e) => setEditAmount(Number(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-full text-base font-black font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-right text-rose-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Description / Reason *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Delivery Van Fuel for G-9 Route"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
+                  Payment Method
+                </label>
+                <select
+                  value={editPaymentMethod}
+                  onChange={(e) => setEditPaymentMethod(e.target.value)}
+                  className="w-full text-xs font-semibold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                >
+                  <option value="CASH">Cash in Hand</option>
+                  <option value="BANK">Bank Account</option>
+                  <option value="CREDIT">Vendor Credit</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditOpen(false);
+                    setEditingExpense(null);
+                  }}
+                  className="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-theme-xs cursor-pointer"
+                >
+                  Update Expense
                 </button>
               </div>
             </form>

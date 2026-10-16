@@ -83,7 +83,7 @@ export async function getProfitKPIs(): Promise<ProfitKPIs> {
 
   const expenses = await getExpenses();
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const netProfit = grossProfit - totalExpenses;
+  const netProfit = grossProfit - totalDiscounts;
   const profitMarginPercent = totalSales > 0 ? Math.round((netProfit / totalSales) * 100 * 10) / 10 : 0;
 
   return {
