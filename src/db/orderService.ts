@@ -193,17 +193,100 @@ export async function createOrder(
   return newId;
 }
 
+async function cancelLinkedBillsForOrder(sqlDb: any, orderId: number): Promise<void> {
+  try {
+    // 1. Fetch bills linked to this order that are not already cancelled
+    const linkedBills = (await sqlDb.select(
+      "SELECT id, bill_number, shop_id, net_amount, paid_amount, payment_status FROM bills WHERE order_id = $1 AND payment_status != 'CANCELLED'",
+      [orderId]
+    )) as any[];
+
+    for (const b of linkedBills) {
+      const billId = Number(b.id);
+      const shopId = Number(b.shop_id);
+      const unpaidDiff = Number(b.net_amount || 0) - Number(b.paid_amount || 0);
+
+      // Restore product inventory stock
+      const items = (await sqlDb.select(
+        "SELECT product_id, quantity FROM bill_items WHERE bill_id = $1",
+        [billId]
+      )) as any[];
+
+      for (const it of items) {
+        const prodId = Number(it.product_id);
+        const qty = Number(it.quantity);
+
+        await sqlDb.execute(
+          "UPDATE products SET current_stock = current_stock + $1 WHERE id = $2",
+          [qty, prodId]
+        );
+
+        const pRows = (await sqlDb.select(
+          "SELECT current_stock FROM products WHERE id = $1",
+          [prodId]
+        )) as any[];
+        const balanceAfter = Number(pRows?.[0]?.current_stock || 0);
+
+        await sqlDb.execute(
+          `INSERT INTO inventory_ledger (product_id, change_qty, balance_after, transaction_type, reference_id, reference_type, performed_by, notes, created_at)
+           VALUES ($1, $2, $3, 'DAMAGE_ADJUSTMENT', $4, 'BILL', 1, $5, datetime('now', 'localtime'))`,
+          [prodId, qty, balanceAfter, billId, `Restocked from cancelled order #${orderId}`]
+        );
+      }
+
+      // Revert shop outstanding balance if credit was issued
+      if (unpaidDiff > 0) {
+        await sqlDb.execute(
+          "UPDATE retail_shops SET outstanding_balance = MAX(0, outstanding_balance - $1) WHERE id = $2",
+          [unpaidDiff, shopId]
+        );
+      }
+
+      // Mark the bill as CANCELLED (excludes from sales and profit)
+      await sqlDb.execute(
+        "UPDATE bills SET payment_status = 'CANCELLED' WHERE id = $1",
+        [billId]
+      );
+    }
+  } catch (err) {
+    console.error("Error cancelling linked bills for order:", err);
+  }
+}
+
 export async function updateOrderStatus(id: number, status: OrderStatus): Promise<void> {
   const isTauri = isTauriEnvironment();
   const sqlDb = await getSqlDb();
 
   if (isTauri && sqlDb) {
+    if (status === "CANCELLED") {
+      await cancelLinkedBillsForOrder(sqlDb, id);
+    }
     await sqlDb.execute("UPDATE orders SET status = $1 WHERE id = $2", [status, id]);
     return;
   }
 
+  // Memory fallback
   const o = memoryStore.orders.find((ord) => ord.id === id);
   if (o) o.status = status;
+
+  if (status === "CANCELLED") {
+    const linked = memoryStore.bills.filter(
+      (b) => b.orderId === id && b.paymentStatus !== "CANCELLED"
+    );
+    for (const b of linked) {
+      b.paymentStatus = "CANCELLED";
+      const bItems = memoryStore.billItems.filter((bi) => bi.billId === b.id);
+      for (const it of bItems) {
+        const prod = memoryStore.products.find((p) => p.id === it.productId);
+        if (prod) prod.currentStock += it.quantity;
+      }
+      const unpaid = b.netAmount - b.paidAmount;
+      if (unpaid > 0) {
+        const s = memoryStore.shops.find((shp) => shp.id === b.shopId);
+        if (s) s.outstandingBalance = Math.max(0, s.outstandingBalance - unpaid);
+      }
+    }
+  }
 }
 
 export async function deleteOrder(id: number): Promise<void> {
@@ -212,15 +295,23 @@ export async function deleteOrder(id: number): Promise<void> {
 
   if (isTauri && sqlDb) {
     try {
-      // 1. Unlink any bills referencing this order
-      try {
-        await sqlDb.execute("UPDATE bills SET order_id = NULL WHERE order_id = $1", [id]);
-      } catch {}
+      // 1. Cancel and restore any linked bills
+      await cancelLinkedBillsForOrder(sqlDb, id);
 
-      // 2. Delete order line items
+      // 2. Delete linked bills & bill items so they are permanently removed from profit
+      const linkedBills = await sqlDb.select<any[]>(
+        "SELECT id FROM bills WHERE order_id = $1",
+        [id]
+      );
+      for (const b of linkedBills) {
+        await sqlDb.execute("DELETE FROM bill_items WHERE bill_id = $1", [b.id]);
+        await sqlDb.execute("DELETE FROM bills WHERE id = $1", [b.id]);
+      }
+
+      // 3. Delete order line items
       await sqlDb.execute("DELETE FROM order_items WHERE order_id = $1", [id]);
 
-      // 3. Delete order record
+      // 4. Delete order record
       await sqlDb.execute("DELETE FROM orders WHERE id = $1", [id]);
     } catch (err) {
       console.error("Failed to delete order in SQLite:", err);
@@ -230,6 +321,22 @@ export async function deleteOrder(id: number): Promise<void> {
   }
 
   // Memory fallback
+  const linked = memoryStore.bills.filter((b) => b.orderId === id);
+  for (const b of linked) {
+    const bItems = memoryStore.billItems.filter((bi) => bi.billId === b.id);
+    for (const it of bItems) {
+      const prod = memoryStore.products.find((p) => p.id === it.productId);
+      if (prod) prod.currentStock += it.quantity;
+    }
+    const unpaid = b.netAmount - b.paidAmount;
+    if (unpaid > 0) {
+      const s = memoryStore.shops.find((shp) => shp.id === b.shopId);
+      if (s) s.outstandingBalance = Math.max(0, s.outstandingBalance - unpaid);
+    }
+    memoryStore.billItems = memoryStore.billItems.filter((bi) => bi.billId !== b.id);
+  }
+  memoryStore.bills = memoryStore.bills.filter((b) => b.orderId !== id);
+
   memoryStore.orderItems = memoryStore.orderItems.filter((it) => it.orderId !== id);
   const idx = memoryStore.orders.findIndex((o) => o.id === id);
   if (idx !== -1) {

@@ -202,10 +202,10 @@ export async function getShopLedger(shopId: number) {
 
   if (isTauri && sqlDb) {
     try {
-      // 1. Get bills (debit)
+      // 1. Get bills (debit, excluding cancelled)
       const bills = await sqlDb.select<any[]>(
         `SELECT id, bill_number as ref, bill_date as date, net_amount as debit, paid_amount as credit, (net_amount - paid_amount) as balance, 'INVOICE' as type, payment_status as status
-         FROM bills WHERE shop_id = $1`,
+         FROM bills WHERE shop_id = $1 AND payment_status != 'CANCELLED'`,
         [shopId]
       );
       // 2. Get payments (credit)

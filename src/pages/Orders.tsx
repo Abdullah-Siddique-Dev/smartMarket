@@ -94,11 +94,28 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
     }
   };
 
+  const handleCancelOrder = async (ord: Order) => {
+    const confirmMsg = `Cancel Wholesale Order #${ord.orderNumber}?\n\nThis will deduct Rs. ${ord.totalAmount.toLocaleString()} and its profit from your reports, restore inventory stock, and revert any customer credit.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await updateOrderStatus(ord.id, "CANCELLED");
+      if (viewOrder && viewOrder.id === ord.id) {
+        setViewOrder({ ...viewOrder, status: "CANCELLED" });
+      }
+      await fetchOrdersData();
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      console.error("Failed to cancel order:", err);
+      alert("Failed to cancel order. Please try again.");
+    }
+  };
+
   const handleDeleteOrder = async (ord: Order) => {
     const confirmMsg =
       ord.status === "BILLED"
-        ? `Order #${ord.orderNumber} is already marked as BILLED.\n\nAre you sure you want to delete this order?`
-        : `Are you sure you want to delete Wholesale Order #${ord.orderNumber}?`;
+        ? `Order #${ord.orderNumber} is marked as BILLED.\n\nDeleting will permanently remove the order, deduct its amount and profit from your reports, and restore inventory stock.\n\nAre you sure you want to proceed?`
+        : `Delete Wholesale Order #${ord.orderNumber}?\n\nThis will remove the order and deduct its amount from your reports.`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -165,11 +182,17 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
   };
 
   const handleStatusChange = async (orderId: number, status: OrderStatus) => {
+    if (status === "CANCELLED") {
+      const confirmMsg =
+        "Cancel this wholesale order?\n\nThis will deduct the order amount & profit from your reports, restore inventory stock, and revert any customer credit.";
+      if (!window.confirm(confirmMsg)) return;
+    }
     await updateOrderStatus(orderId, status);
     if (viewOrder && viewOrder.id === orderId) {
       setViewOrder({ ...viewOrder, status });
     }
-    fetchOrdersData();
+    await fetchOrdersData();
+    if (onRefresh) await onRefresh();
   };
 
   const getSourceIcon = (src: OrderSource) => {
@@ -330,6 +353,17 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                           title="Generate POS bill from this order immediately"
                         >
                           Convert to Bill
+                        </button>
+                      )}
+                      {ord.status !== "CANCELLED" && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelOrder(ord)}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 transition-colors mr-1.5 cursor-pointer"
+                          title="Cancel Order & deduct from profit"
+                        >
+                          <XCircle className="size-3.5 inline mr-1" />
+                          Cancel
                         </button>
                       )}
                       <button

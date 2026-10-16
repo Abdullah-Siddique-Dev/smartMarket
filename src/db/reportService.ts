@@ -30,16 +30,19 @@ export async function getProfitKPIs(): Promise<ProfitKPIs> {
 
   if (isTauri && sqlDb) {
     try {
-      // 1. Bill totals
+      // 1. Bill totals (excluding cancelled bills)
       const billTotals = await sqlDb.select<any[]>(
-        "SELECT SUM(net_amount) as sales, SUM(discount_amount) as discounts FROM bills"
+        "SELECT SUM(net_amount) as sales, SUM(discount_amount) as discounts FROM bills WHERE payment_status != 'CANCELLED'"
       );
       totalSales = Number(billTotals?.[0]?.sales || 0);
       totalDiscounts = Number(billTotals?.[0]?.discounts || 0);
 
-      // 2. Bill item profits
+      // 2. Bill item profits (excluding cancelled bills)
       const profitTotals = await sqlDb.select<any[]>(
-        "SELECT SUM(line_profit) as profit, SUM(unit_purchase_price * quantity) as cost FROM bill_items"
+        `SELECT SUM(bi.line_profit) as profit, SUM(bi.unit_purchase_price * bi.quantity) as cost
+         FROM bill_items bi
+         JOIN bills b ON bi.bill_id = b.id
+         WHERE b.payment_status != 'CANCELLED'`
       );
       grossProfit = Number(profitTotals?.[0]?.profit || 0);
       totalCost = Number(profitTotals?.[0]?.cost || 0);
@@ -71,10 +74,14 @@ export async function getProfitKPIs(): Promise<ProfitKPIs> {
       console.error("Failed to calculate report metrics:", err);
     }
   } else {
-    totalSales = memoryStore.bills.reduce((sum, b) => sum + b.netAmount, 0);
-    totalDiscounts = memoryStore.bills.reduce((sum, b) => sum + b.discountAmount, 0);
-    grossProfit = memoryStore.billItems.reduce((sum, bi) => sum + (bi.lineProfit || 0), 0);
-    totalCost = memoryStore.billItems.reduce((sum, bi) => sum + (bi.unitPurchasePrice || 0) * bi.quantity, 0);
+    const activeBills = memoryStore.bills.filter((b) => b.paymentStatus !== "CANCELLED");
+    const activeBillIds = new Set(activeBills.map((b) => b.id));
+    const activeBillItems = memoryStore.billItems.filter((bi) => activeBillIds.has(bi.billId));
+
+    totalSales = activeBills.reduce((sum, b) => sum + b.netAmount, 0);
+    totalDiscounts = activeBills.reduce((sum, b) => sum + b.discountAmount, 0);
+    grossProfit = activeBillItems.reduce((sum, bi) => sum + (bi.lineProfit || 0), 0);
+    totalCost = activeBillItems.reduce((sum, bi) => sum + (bi.unitPurchasePrice || 0) * bi.quantity, 0);
     ordersCompleted = memoryStore.orders.filter((o) => o.status === "BILLED").length;
     ordersPending = memoryStore.orders.filter((o) => o.status === "PENDING").length;
     totalReceivables = memoryStore.shops.reduce((sum, s) => sum + s.outstandingBalance, 0);
@@ -110,7 +117,9 @@ export async function getTopProducts(limit = 5) {
       const rows = await sqlDb.select<any[]>(
         `SELECT p.name, p.sku, SUM(bi.quantity) as total_qty, SUM(bi.line_total) as total_revenue, SUM(bi.line_profit) as total_profit
          FROM bill_items bi
+         JOIN bills b ON bi.bill_id = b.id
          JOIN products p ON bi.product_id = p.id
+         WHERE b.payment_status != 'CANCELLED'
          GROUP BY bi.product_id
          ORDER BY total_revenue DESC LIMIT $1`,
         [limit]
@@ -149,7 +158,7 @@ export async function getBookerLeaderboard() {
                 COALESCE(SUM(b.paid_amount), 0) as cash_collected,
                 COALESCE(SUM(b.net_amount * ob.commission_rate / 100), 0) as estimated_commission
          FROM order_bookers ob
-         LEFT JOIN bills b ON ob.id = b.order_booker_id
+         LEFT JOIN bills b ON ob.id = b.order_booker_id AND b.payment_status != 'CANCELLED'
          WHERE ob.is_active = 1
          GROUP BY ob.id
          ORDER BY total_sales DESC`

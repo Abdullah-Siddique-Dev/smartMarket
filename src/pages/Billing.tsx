@@ -202,6 +202,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       const billId = await createBill(
         {
           shopId: Number(selectedShopId),
+          orderId: convertedOrder?.id || null,
           orderBookerId: selectedBookerId ? Number(selectedBookerId) : null,
           subtotal,
           discountAmount,
