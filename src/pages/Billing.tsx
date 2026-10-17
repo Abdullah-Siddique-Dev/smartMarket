@@ -12,6 +12,7 @@ import {
   Printer,
   X,
   AlertCircle,
+  AlertTriangle,
   TrendingUp,
 } from "lucide-react";
 import { Product, RetailShop, OrderBooker, Bill, PaymentStatus, Order } from "../db/schema";
@@ -179,8 +180,25 @@ export const BillingPage: React.FC<BillingPageProps> = ({
     setDiscountAmount(d);
   };
 
+  const stockShortages = useMemo(() => {
+    return cart.filter((c) => c.quantity > c.product.currentStock);
+  }, [cart]);
+
   const handleCheckoutOpen = () => {
     if (cart.length === 0) return;
+    if (stockShortages.length > 0) {
+      alert(
+        `Cannot proceed to checkout - Insufficient Stock!\n\n` +
+          stockShortages
+            .map(
+              (s) =>
+                `• ${s.product.name}: Available ${s.product.currentStock} ${s.product.unit}, In Cart ${s.quantity}`
+            )
+            .join("\n") +
+          `\n\nPlease reduce quantities or import stock before billing.`
+      );
+      return;
+    }
     setPaymentStatus("PAID");
     setTenderedAmount(netTotal);
     setPartialPaidAmount(Math.round(netTotal / 2));
@@ -189,6 +207,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({
 
   const handleConfirmPayment = async () => {
     if (cart.length === 0 || !selectedShopId) return;
+    if (stockShortages.length > 0) {
+      alert("Cannot create bill: Some products exceed available warehouse stock.");
+      return;
+    }
     setIsSubmitting(true);
 
     const actualPaid =
@@ -235,8 +257,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       if (onBillingComplete) {
         await onBillingComplete();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to settle bill:", err);
+      alert(err?.message || "Failed to settle bill due to insufficient stock or error.");
     } finally {
       setIsSubmitting(false);
     }
@@ -436,16 +459,37 @@ export const BillingPage: React.FC<BillingPageProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60 text-xs">
-                  {cart.map((item) => (
-                    <tr key={item.product.id} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
-                      <td className="py-2.5 px-3">
-                        <span className="font-semibold text-gray-900 dark:text-gray-100 block">
-                          {item.product.name}
-                        </span>
-                        <span className="text-[10px] text-gray-400 font-mono">
-                          {item.product.sku}
-                        </span>
-                      </td>
+                  {cart.map((item) => {
+                    const isShort = item.quantity > item.product.currentStock;
+                    return (
+                      <tr
+                        key={item.product.id}
+                        className={
+                          isShort
+                            ? "bg-rose-50/70 dark:bg-rose-950/40 border-l-4 border-rose-500"
+                            : "hover:bg-gray-50/60 dark:hover:bg-gray-800/40"
+                        }
+                      >
+                        <td className="py-2.5 px-3">
+                          <span className="font-semibold text-gray-900 dark:text-gray-100 block">
+                            {item.product.name}
+                          </span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              {item.product.sku}
+                            </span>
+                            {isShort ? (
+                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
+                                <AlertTriangle className="size-3" />
+                                Available: {item.product.currentStock} (Short by {item.quantity - item.product.currentStock})
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 font-mono">
+                                Stock: {item.product.currentStock}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                       <td className="py-2.5 px-3">
                         <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[10px] font-bold text-gray-600 dark:text-gray-300">
                           {item.product.unit}
@@ -493,7 +537,8 @@ export const BillingPage: React.FC<BillingPageProps> = ({
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
                 </tbody>
               </table>
             )}
@@ -578,15 +623,45 @@ export const BillingPage: React.FC<BillingPageProps> = ({
             </div>
           </div>
 
+          {/* Stock Shortage Alert */}
+          {stockShortages.length > 0 && (
+            <div className="mt-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl p-3 text-xs text-rose-700 dark:text-rose-400 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertTriangle className="size-4 text-rose-600 shrink-0" />
+                <span>Cannot Settle: Warehouse Shortage</span>
+              </div>
+              <p className="text-[11px] text-rose-600/90 dark:text-rose-400/90">
+                {stockShortages
+                  .map(
+                    (s) =>
+                      `${s.product.name} (Stock: ${s.product.currentStock}, In Cart: ${s.quantity})`
+                  )
+                  .join(", ")}
+              </p>
+            </div>
+          )}
+
           {/* Settle Action Button */}
           <div className="pt-4">
             <button
               type="button"
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || stockShortages.length > 0}
               onClick={handleCheckoutOpen}
-              className="w-full py-3.5 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-theme-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
+              className={`w-full py-3.5 px-4 text-white font-bold text-sm rounded-xl shadow-theme-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed ${
+                stockShortages.length > 0
+                  ? "bg-rose-600 hover:bg-rose-700 opacity-80"
+                  : "bg-brand-600 hover:bg-brand-700 disabled:opacity-50"
+              }`}
             >
-              <CreditCard className="size-5" /> Settle & Checkout (F1)
+              {stockShortages.length > 0 ? (
+                <>
+                  <AlertTriangle className="size-5" /> Stock Shortage ({stockShortages.length} Items)
+                </>
+              ) : (
+                <>
+                  <CreditCard className="size-5" /> Settle & Checkout (F1)
+                </>
+              )}
             </button>
           </div>
         </div>

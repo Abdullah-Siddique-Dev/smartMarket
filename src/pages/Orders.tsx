@@ -13,6 +13,7 @@ import {
   Store,
   X,
   Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { Order, OrderStatus, OrderSource, Product, RetailShop, OrderBooker } from "../db/schema";
 import { getOrders, getOrderById, createOrder, updateOrderStatus, deleteOrder } from "../db/orderService";
@@ -89,6 +90,29 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
       const full = await getOrderById(ord.id);
       if (full) orderToConvert = full;
     }
+
+    // Check warehouse stock availability for all items in the order
+    const shortages: string[] = [];
+    for (const it of orderToConvert.items || []) {
+      const p = products.find((prod) => prod.id === it.productId);
+      const avail = p?.currentStock ?? 0;
+      if (it.quantity > avail) {
+        shortages.push(
+          `• ${it.product_name || p?.name || "Product"}: Available ${avail} ${p?.unit || "units"}, Requested ${it.quantity}`
+        );
+      }
+    }
+
+    if (shortages.length > 0) {
+      alert(
+        `Cannot Convert Order #${ord.orderNumber} to Bill - Insufficient Stock!\n\n` +
+          `The following items exceed current warehouse stock:\n\n` +
+          shortages.join("\n") +
+          `\n\nPlease restock these products in Inventory before converting to a bill.`
+      );
+      return;
+    }
+
     if (onNavigateToBilling) {
       onNavigateToBilling(orderToConvert);
     }
@@ -158,9 +182,36 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
     );
   };
 
+  const hasOrderShortages = useMemo(() => {
+    return orderItems.some((it) => {
+      const p = products.find((prod) => prod.id === it.productId);
+      return it.quantity > (p?.currentStock ?? 0);
+    });
+  }, [orderItems, products]);
+
   const handleCreateOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (orderItems.length === 0) return;
+
+    // Check for stock shortages
+    const orderShortages: string[] = [];
+    for (const it of orderItems) {
+      const p = products.find((prod) => prod.id === it.productId);
+      const avail = p?.currentStock ?? 0;
+      if (it.quantity > avail) {
+        orderShortages.push(
+          `• ${p?.name || "Product"}: Available ${avail} ${p?.unit || "units"}, Requested ${it.quantity}`
+        );
+      }
+    }
+    if (orderShortages.length > 0) {
+      alert(
+        `Cannot Book Order - Insufficient Warehouse Stock!\n\n` +
+          orderShortages.join("\n") +
+          `\n\nPlease reduce order quantities or import stock first.`
+      );
+      return;
+    }
 
     try {
       await createOrder(
@@ -505,41 +556,65 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-48 overflow-y-auto p-1">
-                  {orderItems.map((it, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <select
-                        value={it.productId}
-                        onChange={(e) => handleItemProductChange(idx, Number(e.target.value))}
-                        className="flex-1 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 font-medium"
+                <div className="space-y-3 max-h-56 overflow-y-auto p-1">
+                  {orderItems.map((it, idx) => {
+                    const prod = products.find((p) => p.id === it.productId);
+                    const isShort = it.quantity > (prod?.currentStock ?? 0);
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-2 rounded-xl border space-y-1.5 ${
+                          isShort
+                            ? "bg-rose-50/60 dark:bg-rose-950/30 border-rose-300 dark:border-rose-900"
+                            : "bg-gray-50/50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-800"
+                        }`}
                       >
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.unit}) - Rs. {p.sellingPrice}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        min="1"
-                        value={it.quantity}
-                        onChange={(e) => handleItemQtyChange(idx, Number(e.target.value))}
-                        className="w-16 text-center text-xs font-mono font-bold bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg py-1.5"
-                      />
-                      <span className="text-xs font-bold font-mono w-20 text-right">
-                        Rs. {(it.quantity * it.unitPrice).toLocaleString()}
-                      </span>
-                      {orderItems.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveOrderItem(idx)}
-                          className="text-gray-400 hover:text-rose-500"
-                        >
-                          <X className="size-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={it.productId}
+                            onChange={(e) => handleItemProductChange(idx, Number(e.target.value))}
+                            className="flex-1 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 font-medium"
+                          >
+                            {products.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.unit}) • Stock: {p.currentStock} • Rs. {p.sellingPrice}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            min="1"
+                            value={it.quantity}
+                            onChange={(e) => handleItemQtyChange(idx, Number(e.target.value))}
+                            className={`w-16 text-center text-xs font-mono font-bold border rounded-lg py-1.5 ${
+                              isShort
+                                ? "bg-rose-100 dark:bg-rose-950 border-rose-400 text-rose-700 dark:text-rose-300"
+                                : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                            }`}
+                          />
+                          <span className="text-xs font-bold font-mono w-20 text-right">
+                            Rs. {(it.quantity * it.unitPrice).toLocaleString()}
+                          </span>
+                          {orderItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOrderItem(idx)}
+                              className="text-gray-400 hover:text-rose-500 cursor-pointer"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {isShort && (
+                          <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 pl-1">
+                            <AlertTriangle className="size-3 shrink-0" />
+                            Stock shortage: Only {prod?.currentStock ?? 0} {prod?.unit || "units"} available in warehouse (short by {it.quantity - (prod?.currentStock ?? 0)})
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -556,6 +631,13 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                 />
               </div>
 
+              {hasOrderShortages && (
+                <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl p-2.5 text-xs text-rose-700 dark:text-rose-400 flex items-center gap-1.5 font-bold">
+                  <AlertTriangle className="size-4 text-rose-600 shrink-0" />
+                  <span>Cannot book order: One or more products exceed warehouse stock!</span>
+                </div>
+              )}
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -566,9 +648,14 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-theme-xs cursor-pointer"
+                  disabled={hasOrderShortages}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all shadow-theme-xs ${
+                    hasOrderShortages
+                      ? "bg-rose-600 text-white opacity-80 cursor-not-allowed"
+                      : "bg-brand-600 hover:bg-brand-700 text-white cursor-pointer"
+                  }`}
                 >
-                  Confirm Booking
+                  {hasOrderShortages ? "Insufficient Stock" : "Confirm Booking"}
                 </button>
               </div>
             </form>

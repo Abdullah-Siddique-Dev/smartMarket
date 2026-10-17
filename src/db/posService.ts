@@ -135,6 +135,23 @@ export async function createBill(
   const unpaidDifference = billData.netAmount - billData.paidAmount;
 
   if (isTauri && sqlDb) {
+    // Validate stock availability for all items before any writes
+    if (billData.deductStock !== false) {
+      for (const it of items) {
+        const pRows = (await sqlDb.select(
+          "SELECT name, current_stock FROM products WHERE id = $1",
+          [it.productId]
+        )) as any[];
+        const pName = pRows?.[0]?.name || `Product #${it.productId}`;
+        const currentStock = Number(pRows?.[0]?.current_stock || 0);
+        if (currentStock < it.quantity) {
+          throw new Error(
+            `Insufficient stock for "${pName}". Available in warehouse: ${currentStock}, Requested: ${it.quantity}. Cannot proceed with bill.`
+          );
+        }
+      }
+    }
+
     const res = await sqlDb.execute(
       `INSERT INTO bills (bill_number, order_id, shop_id, order_booker_id, bill_date, subtotal, discount_amount, net_amount, paid_amount, payment_status, created_by, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11)`,
@@ -205,6 +222,18 @@ export async function createBill(
     }
 
     return newBillId;
+  }
+
+  if (billData.deductStock !== false) {
+    for (const it of items) {
+      const prod = memoryStore.products.find((p) => p.id === it.productId);
+      const avail = prod?.currentStock ?? 0;
+      if (avail < it.quantity) {
+        throw new Error(
+          `Insufficient stock for "${prod?.name || 'Product'}". Available in warehouse: ${avail}, Requested: ${it.quantity}.`
+        );
+      }
+    }
   }
 
   const newId = memoryStore.bills.length > 0 ? Math.max(...memoryStore.bills.map((b) => b.id)) + 1 : 1;
